@@ -1,0 +1,242 @@
+/**
+ * Modal shell chrome.
+ *
+ * The dialog-specific styling used by the modal `TableEditor` shell: the
+ * backdrop, modal frame, titlebar, the toolbar-injected Save/Cancel actions,
+ * confirm dialog, open animations, and the BookStack toolbar-launch button. The
+ * desktop app renders the grid full-window with no modal, so it omits this layer — only
+ * `tokens.css` + `editor.css` are shared. Port rules from here if the desktop
+ * app ever grows a modal or confirmation dialog. Reads theme via `var(--mte-*)`.
+ */
+
+/* Backdrop */
+.mte-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--mte-bg-backdrop);
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+}
+
+/* Modal Container - BookStack style card */
+.mte-modal {
+    background: var(--mte-bg-primary);
+    border-radius: var(--mte-radius);
+    box-shadow: var(--mte-shadow);
+    border: 1px solid var(--mte-border-color);
+    display: flex;
+    flex-direction: column;
+    width: auto;
+    min-width: 400px;
+    max-width: 95vw;
+    max-height: 90vh;
+    min-height: 300px;
+    font-family: var(--mte-font-family);
+    color: var(--mte-text-primary);
+    resize: both;
+    overflow: hidden;
+    font-size: 14px;
+    line-height: 1.6;
+}
+
+/* Title Bar - BookStack style */
+.mte-titlebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--mte-border-color);
+    background: var(--mte-bg-primary);
+}
+
+.mte-title {
+    font-size: 16px;
+    font-weight: 400;
+    margin: 0;
+    color: var(--mte-text-primary);
+}
+
+.mte-close {
+    background: none;
+    border: none;
+    font-size: 20px;
+    cursor: pointer;
+    color: var(--mte-text-muted);
+    padding: 4px 6px;
+    border-radius: 3px;
+    line-height: 1;
+    transition: all 0.12s ease;
+}
+
+.mte-close:hover {
+    background: var(--mte-btn-secondary-hover);
+    color: var(--mte-text-primary);
+}
+
+/* Applied to body during modal drag */
+body.mte-dragging {
+    cursor: move !important;
+    user-select: none !important;
+}
+
+body.mte-dragging * {
+    cursor: move !important;
+}
+
+/*
+ * Save / Cancel actions live in the core toolbar's trailing slot (no footer).
+ * They're sized to match the toolbar's Aligned toggle (34px) so they line up
+ * with the other toolbar controls. These are modal-shell-only — the desktop
+ * app shares the same toolbar but never injects them.
+ */
+.mte-toolbar .mte-action-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 34px;
+    padding: 0 16px;
+    border-radius: 8px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+/* BookStack-style secondary/outline button */
+.mte-toolbar .btn-cancel {
+    border: 1px solid var(--mte-btn-secondary-border);
+    background: var(--mte-btn-secondary-bg);
+    color: var(--mte-btn-secondary-text);
+}
+
+.mte-toolbar .btn-cancel:hover {
+    background: var(--mte-btn-secondary-hover);
+    border-color: var(--mte-border-color);
+    color: var(--mte-text-primary);
+}
+
+/* BookStack-style primary button */
+.mte-toolbar .btn-save {
+    border: 1px solid var(--mte-btn-primary-bg);
+    background: var(--mte-btn-primary-bg);
+    color: var(--mte-btn-primary-text);
+}
+
+.mte-toolbar .btn-save:hover {
+    background: var(--mte-btn-primary-hover);
+    border-color: var(--mte-btn-primary-hover);
+}
+
+/* Status message (sits before the action buttons in the toolbar). */
+.mte-status {
+    font-size: 12px;
+    color: var(--mte-text-muted);
+}
+
+/* Confirm dialog */
+.mte-confirm {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--mte-bg-backdrop);
+    z-index: 10001;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mte-confirm-dialog {
+    background: var(--mte-bg-primary);
+    border-radius: var(--mte-radius);
+    box-shadow: var(--mte-shadow);
+    padding: 24px;
+    max-width: 400px;
+    text-align: center;
+}
+
+.mte-confirm-dialog p {
+    margin: 0 0 20px;
+    font-size: 15px;
+    color: var(--mte-text-primary);
+}
+
+.mte-confirm-dialog .button-row {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+.mte-confirm-dialog button {
+    padding: 8px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.mte-confirm-dialog .btn-discard {
+    background: var(--mte-btn-danger-bg);
+    color: var(--mte-btn-danger-text);
+    border: none;
+}
+
+.mte-confirm-dialog .btn-discard:hover {
+    background: var(--mte-btn-danger-hover);
+}
+
+.mte-confirm-dialog .btn-continue {
+    background: var(--mte-btn-secondary-bg);
+    color: var(--mte-btn-secondary-text);
+    border: 1px solid var(--mte-border-color);
+}
+
+.mte-confirm-dialog .btn-continue:hover {
+    background: var(--mte-btn-secondary-hover);
+}
+
+/* Animations */
+@keyframes mte-fade-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes mte-slide-in {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.mte-backdrop {
+    animation: mte-fade-in 0.15s ease-out;
+}
+
+.mte-modal {
+    animation: mte-slide-in 0.2s ease-out;
+}
+
+/* BookStack toolbar button styling */
+.mte-button svg {
+    stroke: #206bc4;
+}
+
+/* Dark mode: lighter blue for visibility */
+html.dark-mode .mte-button svg {
+    stroke: #6ea8fe;
+}

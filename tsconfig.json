@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    // --- What environment the code runs in ---
+    "target": "ES2020",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+
+    // --- Type-check only, no output ---
+    "noEmit": true,
+
+    // --- Type safety (the whole point) ---
+    "strict": true,
+
+    // --- Quality-of-life ---
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": [
+    "core/src/**/*.ts",
+    "bookstack/src/**/*.ts",
+    "test/**/*.ts",
+    "tauri/frontend/**/*.ts"
+  ]
+}

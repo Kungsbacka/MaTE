@@ -1,0 +1,79 @@
+/**
+ * MaTE (Markdown Table Editor) styles — BookStack integration entry sheet.
+ *
+ * Composes the full editor look for the modal `TableEditor` shell by layering
+ * the shared structure on top of the theme, then adding the modal chrome.
+ * The desktop app composes its own entry sheet (tauri/frontend/styles.css) from
+ * the same `tokens.css` + `editor.css` but omits `modal.css`.
+ *
+ * These `@import`s are resolved and inlined at build time by esbuild
+ * (see bookstack/build.js), so the shipped bundle is a single self-contained
+ * stylesheet — the relative paths are never fetched at runtime.
+ */
+
+@import '../../../core/src/styles/tokens.css';
+@import '../../../core/src/styles/editor.css';
+@import './modal.css';
+
+/* --- BookStack reskin: match BookStack's own palette ----------------------- *
+ * tokens.css ships a neutral indigo accent (shared default, used by the desktop
+ * app). BookStack has its own blue/green/red theme, so we override the *color*
+ * tokens here — the same pattern the desktop shell uses in its entry sheet.
+ * Only color/accent/semantic tokens change; the neutral greyscale surfaces from
+ * tokens.css are kept. Values mirror BookStack's _vars.scss / setting-defaults:
+ *   primary #206ea7 · primary-light rgba(32,110,167,.15) · negative #ab0f0e
+ *   (dark) app #195785 · link #429fe3 · negative #e85c5b
+ * ------------------------------------------------------------------------- */
+.mte {
+    /* Accent → BookStack primary blue */
+    --mte-accent: #206ea7;
+    --mte-accent-hover: #195a86;
+    --mte-accent-text: #1c6296;
+    --mte-accent-bg: rgba(32, 110, 167, 0.10);
+    --mte-accent-bg-active: rgba(32, 110, 167, 0.18);
+    --mte-accent-border: rgba(32, 110, 167, 0.40);
+
+    --mte-bg-selected: rgba(32, 110, 167, 0.15); /* BookStack --color-primary-light */
+    --mte-border-focus: #206ea7;
+    --mte-focus-glow: rgba(32, 110, 167, 0.40);
+
+    /* Primary/Save button → BookStack positive green (the "Save page" action) */
+    --mte-btn-primary-bg: #0f7d15;
+    --mte-btn-primary-hover: #0c6611;
+    --mte-btn-primary-text: #ffffff;
+
+    /* Danger → BookStack negative red */
+    --mte-btn-danger-bg: #ab0f0e;
+    --mte-btn-danger-hover: #8c0c0b;
+    --mte-btn-danger-text: #ffffff;
+
+    /* Icon accents follow the palette */
+    --mte-icon-insert: #206ea7;
+    --mte-icon-delete: #ab0f0e;
+    --mte-pill-delete-hover: #f7e6e6;
+}
+
+.mte.dark-theme {
+    --mte-accent: #429fe3;          /* BookStack dark link blue */
+    --mte-accent-hover: #5aade8;
+    --mte-accent-text: #6fbcef;
+    --mte-accent-bg: rgba(66, 159, 227, 0.16);
+    --mte-accent-bg-active: rgba(66, 159, 227, 0.26);
+    --mte-accent-border: rgba(66, 159, 227, 0.45);
+
+    --mte-bg-selected: rgba(66, 159, 227, 0.20);
+    --mte-border-focus: #429fe3;
+    --mte-focus-glow: rgba(66, 159, 227, 0.40);
+
+    --mte-btn-primary-bg: #2b8a3e;  /* BookStack dark positive, deepened for white text */
+    --mte-btn-primary-hover: #34a049;
+    --mte-btn-primary-text: #ffffff;
+
+    --mte-btn-danger-bg: #c43b3a;
+    --mte-btn-danger-hover: #d64c4b;
+    --mte-btn-danger-text: #ffffff;
+
+    --mte-icon-insert: #429fe3;
+    --mte-icon-delete: #e85c5b;     /* BookStack dark negative */
+    --mte-pill-delete-hover: #3a2626;
+}

@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MaTE - Test Harness</title>
+    <link rel="stylesheet" href="../bookstack/src/styles/styles.css">
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        h1 {
+            color: #333;
+        }
+
+        h2 {
+            color: #555;
+            margin-top: 30px;
+            border-bottom: 2px solid #ddd;
+            padding-bottom: 10px;
+        }
+
+        .section {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        textarea {
+            width: 100%;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 14px;
+            padding: 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            resize: vertical;
+        }
+
+        #markdownInput {
+            height: 200px;
+        }
+
+        #jsonOutput, #markdownOutput, #editorResult {
+            height: 300px;
+            background: #fafafa;
+        }
+
+        .button-row {
+            margin: 15px 0;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 14px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button.primary {
+            background: #0066cc;
+            color: white;
+        }
+
+        button.primary:hover {
+            background: #0055aa;
+        }
+
+        button.secondary {
+            background: #666;
+            color: white;
+        }
+
+        button.secondary:hover {
+            background: #555;
+        }
+
+        button.success {
+            background: #28a745;
+            color: white;
+        }
+
+        button.success:hover {
+            background: #218838;
+        }
+
+        .status {
+            padding: 10px;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+
+        .status.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .status.warning {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+        }
+
+        .status.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        #status {
+            min-height: 20px;
+        }
+
+        .columns {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 800px) {
+            .columns {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 10px 0;
+        }
+
+        label input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+        }
+
+        .sample-tables {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+
+        .sample-tables button {
+            font-size: 12px;
+            padding: 6px 12px;
+        }
+
+        pre {
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 13px;
+        }
+
+        .editor-section {
+            margin-top: 20px;
+        }
+
+        .theme-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+    <h1>MaTE - Test Harness</h1>
+
+    <div class="section">
+        <h2>Stage 1: Parser & Serializer Test</h2>
+
+        <div class="sample-tables">
+            <span>Load sample:</span>
+            <button onclick="loadSample('basic')">Basic Table</button>
+            <button onclick="loadSample('aligned')">Aligned Columns</button>
+            <button onclick="loadSample('escaped')">Escaped Pipes</button>
+            <button onclick="loadSample('minimal')">Minimal</button>
+            <button onclick="loadSample('large')">Large Table</button>
+        </div>
+
+        <label>
+            <strong>Markdown Input:</strong>
+        </label>
+        <textarea id="markdownInput" placeholder="Paste a markdown table here..."></textarea>
+
+        <div class="button-row">
+            <button class="primary" onclick="parseMarkdown()">Parse Table</button>
+            <button class="secondary" onclick="clearAll()">Clear</button>
+        </div>
+
+        <div id="status"></div>
+
+        <div class="columns">
+            <div>
+                <label><strong>Parsed Data Model (JSON):</strong></label>
+                <textarea id="jsonOutput" readonly></textarea>
+            </div>
+            <div>
+                <label>
+                    <input type="checkbox" id="alignedOutput" checked>
+                    Align columns in output
+                </label>
+                <label><strong>Serialized Markdown:</strong></label>
+                <textarea id="markdownOutput" readonly></textarea>
+            </div>
+        </div>
+
+        <div class="button-row">
+            <button class="success" onclick="roundTrip()">Round-Trip Test</button>
+        </div>
+
+        <div id="roundTripResult"></div>
+    </div>
+
+    <div class="section">
+        <h2>Stage 2: Visual Editor</h2>
+
+        <div class="theme-toggle">
+            <label>
+                <input type="checkbox" id="darkTheme">
+                Dark Theme
+            </label>
+        </div>
+
+        <div class="button-row">
+            <button class="primary" onclick="openEditor()">Open MaTE</button>
+            <button class="secondary" onclick="createNewTable()">Create New Table</button>
+        </div>
+
+        <div id="editorStatus"></div>
+
+        <div class="editor-section">
+            <label><strong>Editor Result:</strong></label>
+            <textarea id="editorResult" readonly placeholder="Edit a table to see the result here..."></textarea>
+        </div>
+    </div>
+
+    <script type="module">
+        import {
+            parseTable,
+            serializeTable, serialize,
+            createEmptyTable, cloneTable, addRow, addColumn,
+            TableEditor, editTable, createTable
+        } from '../dist/table-editor.esm.js';
+
+        // Sample tables
+        const samples = {
+            basic: `| Name | Age | City |
+|------|-----|------|
+| Alice | 30 | Stockholm |
+| Bob | 25 | Gothenburg |`,
+
+            aligned: `| Fruit  | Count | Price |
+|--------|------:|:-----:|
+| Apple  |     5 |  1.20 |
+| Banana |    12 |  0.50 |`,
+
+            escaped: `| Command | Description |
+|---------|-------------|
+| echo "a \\| b" | Prints a \\| b |
+| test | Simple test |`,
+
+            minimal: `| A | B |
+|---|---|
+| 1 | 2 |`,
+
+            large: generateLargeTable()
+        };
+
+        function generateLargeTable() {
+            let table = '| ID | Name | Value | Status |\n|---|---|---|---|\n';
+            for (let i = 1; i <= 50; i++) {
+                table += `| ${i} | Item ${i} | ${Math.floor(Math.random() * 100)} | ${i % 3 === 0 ? 'Active' : 'Inactive'} |\n`;
+            }
+            return table.trim();
+        }
+
+        // Current parsed table
+        let currentTable = null;
+
+        // Make functions available globally
+        window.loadSample = function(name) {
+            document.getElementById('markdownInput').value = samples[name] || '';
+            parseMarkdown();
+        };
+
+        window.parseMarkdown = function() {
+            const input = document.getElementById('markdownInput').value;
+            const statusEl = document.getElementById('status');
+            const jsonOutput = document.getElementById('jsonOutput');
+            const markdownOutput = document.getElementById('markdownOutput');
+
+            if (!input.trim()) {
+                statusEl.innerHTML = '<div class="status info">Enter a markdown table to parse.</div>';
+                jsonOutput.value = '';
+                markdownOutput.value = '';
+                currentTable = null;
+                return;
+            }
+
+            const result = parseTable(input);
+
+            if (result.error) {
+                statusEl.innerHTML = `<div class="status error">Error: ${result.error}</div>`;
+                jsonOutput.value = '';
+                markdownOutput.value = '';
+                currentTable = null;
+                return;
+            }
+
+            currentTable = result.table;
+
+            // Show warnings if any
+            let statusHtml = '<div class="status success">Table parsed successfully!</div>';
+            if (result.warnings.length > 0) {
+                statusHtml += '<div class="status warning">Warnings:<ul>' +
+                    result.warnings.map(w => `<li>${w}</li>`).join('') +
+                    '</ul></div>';
+            }
+            statusEl.innerHTML = statusHtml;
+
+            // Display JSON
+            jsonOutput.value = JSON.stringify(result.table, null, 2);
+
+            // Serialize back
+            updateSerializedOutput();
+        };
+
+        window.updateSerializedOutput = function() {
+            if (!currentTable) return;
+
+            const aligned = document.getElementById('alignedOutput').checked;
+            const markdownOutput = document.getElementById('markdownOutput');
+
+            const result = serializeTable(currentTable, { aligned });
+            markdownOutput.value = result.markdown;
+
+            if (result.notice) {
+                const statusEl = document.getElementById('status');
+                statusEl.innerHTML += `<div class="status info">${result.notice}</div>`;
+            }
+        };
+
+        window.clearAll = function() {
+            document.getElementById('markdownInput').value = '';
+            document.getElementById('jsonOutput').value = '';
+            document.getElementById('markdownOutput').value = '';
+            document.getElementById('status').innerHTML = '';
+            document.getElementById('roundTripResult').innerHTML = '';
+            currentTable = null;
+        };
+
+        window.roundTrip = function() {
+            const original = document.getElementById('markdownInput').value.trim();
+            const serialized = document.getElementById('markdownOutput').value.trim();
+            const resultEl = document.getElementById('roundTripResult');
+
+            if (!currentTable) {
+                resultEl.innerHTML = '<div class="status error">Parse a table first.</div>';
+                return;
+            }
+
+            // Parse the serialized output
+            const reparsed = parseTable(serialized);
+
+            if (reparsed.error) {
+                resultEl.innerHTML = `<div class="status error">Round-trip failed: ${reparsed.error}</div>`;
+                return;
+            }
+
+            // Compare data models
+            const originalJson = JSON.stringify(currentTable);
+            const reparsedJson = JSON.stringify(reparsed.table);
+
+            if (originalJson === reparsedJson) {
+                resultEl.innerHTML = '<div class="status success">Round-trip successful! Data models match.</div>';
+            } else {
+                resultEl.innerHTML = `<div class="status warning">
+                    <p>Data models differ (this may be expected due to normalization):</p>
+                    <details>
+                        <summary>View differences</summary>
+                        <p><strong>Original:</strong></p>
+                        <pre>${originalJson}</pre>
+                        <p><strong>Reparsed:</strong></p>
+                        <pre>${reparsedJson}</pre>
+                    </details>
+                </div>`;
+            }
+        };
+
+        window.openEditor = async function() {
+            const input = document.getElementById('markdownInput').value;
+            const statusEl = document.getElementById('editorStatus');
+            const resultEl = document.getElementById('editorResult');
+            const darkTheme = document.getElementById('darkTheme').checked;
+
+            if (!input.trim()) {
+                statusEl.innerHTML = '<div class="status warning">Enter a markdown table first, or click "Create New Table".</div>';
+                return;
+            }
+
+            try {
+                const result = await editTable(input, { darkTheme });
+
+                if (result.saved) {
+                    statusEl.innerHTML = '<div class="status success">Table saved!</div>';
+                    resultEl.value = result.markdown;
+
+                    // Also update the input with the new markdown
+                    document.getElementById('markdownInput').value = result.markdown;
+                    parseMarkdown();
+                } else {
+                    statusEl.innerHTML = '<div class="status info">Edit cancelled.</div>';
+                }
+            } catch (err) {
+                statusEl.innerHTML = `<div class="status error">Error: ${err.message}</div>`;
+            }
+        };
+
+        window.createNewTable = async function() {
+            const statusEl = document.getElementById('editorStatus');
+            const resultEl = document.getElementById('editorResult');
+            const darkTheme = document.getElementById('darkTheme').checked;
+
+            try {
+                const result = await createTable(3, 2, { darkTheme });
+
+                if (result.saved) {
+                    statusEl.innerHTML = '<div class="status success">New table created!</div>';
+                    resultEl.value = result.markdown;
+
+                    // Also update the input with the new markdown
+                    document.getElementById('markdownInput').value = result.markdown;
+                    parseMarkdown();
+                } else {
+                    statusEl.innerHTML = '<div class="status info">Creation cancelled.</div>';
+                }
+            } catch (err) {
+                statusEl.innerHTML = `<div class="status error">Error: ${err.message}</div>`;
+            }
+        };
+
+        // Listen for alignment toggle changes
+        document.getElementById('alignedOutput').addEventListener('change', () => {
+            if (currentTable) {
+                updateSerializedOutput();
+            }
+        });
+
+        // Load a sample on page load
+        window.loadSample('basic');
+    </script>
+</body>
+</html>

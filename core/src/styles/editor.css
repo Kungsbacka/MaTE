@@ -1,0 +1,405 @@
+/**
+ * Shared editor structure.
+ *
+ * The structural styling for the editor widgets that every shell reuses: the
+ * toolbar (pill groups + Aligned toggle), the grid, cells, row/column headers,
+ * selection/hover states, and the column-resize handle. These rules reference
+ * theme values only via `var(--mte-*)` (defined in `tokens.css`) and contain no
+ * hardcoded colors, so a shell can reskin the editor purely by overriding
+ * tokens. Shell-specific chrome (the modal frame, footer buttons, confirm
+ * dialog) lives in `modal.css`; full-window desktop layout and the desktop-only
+ * export controls live in the Tauri app's `app.css`.
+ */
+
+/* ---------------------------------------------------------------- Toolbar -- */
+
+.mte-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 46px;
+    padding: 0 8px;
+    background: var(--mte-bg-primary);
+    border-bottom: 1px solid var(--mte-toolbar-border);
+    font-family: var(--mte-font-family);
+}
+
+/* Pill group: a rounded tray of icon buttons. */
+.mte-toolbar-group {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    background: var(--mte-pill-bg);
+    border-radius: 9px;
+    padding: 3px;
+}
+
+/* Icon button inside a pill. */
+.mte-toolbar .toolbar-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+    padding: 0;
+    color: var(--mte-icon-tool);
+    transition: background 0.12s ease;
+}
+
+.mte-toolbar .toolbar-button:hover {
+    background: var(--mte-pill-hover);
+}
+
+.mte-toolbar .toolbar-button.tb-delete:hover {
+    background: var(--mte-pill-delete-hover);
+}
+
+.mte-toolbar .toolbar-button:disabled {
+    cursor: default;
+    color: var(--mte-icon-disabled);
+    background: transparent;
+}
+
+.mte-toolbar .toolbar-button svg {
+    width: 20px;
+    height: 20px;
+}
+
+/* Per-group icon stroke colors (icons use currentColor). */
+.mte-toolbar .toolbar-button.tb-insert  { color: var(--mte-icon-insert); }
+.mte-toolbar .toolbar-button.tb-move    { color: var(--mte-icon-tool); }
+.mte-toolbar .toolbar-button.tb-delete  { color: var(--mte-icon-delete); }
+.mte-toolbar .toolbar-button.tb-history { color: var(--mte-icon-tool); }
+.mte-toolbar .toolbar-button.tb-paste   { color: var(--mte-icon-tool); }
+
+.mte-toolbar .toolbar-button.tb-history:disabled { color: var(--mte-icon-disabled); }
+
+/* Flexible spacer pushes trailing controls to the right edge. */
+.mte-toolbar-spacer {
+    flex: 1;
+}
+
+/* Trailing controls: Aligned toggle plus any shell-injected controls. */
+.mte-toolbar-trailing {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* Aligned (padded Markdown) output toggle — icon-only, square. */
+.mte-align-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+}
+
+.mte-align-toggle svg {
+    width: 17px;
+    height: 17px;
+}
+
+.mte-align-toggle.is-on {
+    background: var(--mte-accent-bg);
+    color: var(--mte-accent-text);
+    border: 1px solid var(--mte-accent-border);
+}
+
+.mte-align-toggle.is-off {
+    background: var(--mte-bg-primary);
+    color: var(--mte-text-muted);
+    border: 1px solid var(--mte-control-border);
+}
+
+.mte-align-toggle.is-off svg {
+    color: var(--mte-icon-muted);
+}
+
+/* ------------------------------------------------------------------- Grid -- */
+
+.mte-grid-container {
+    flex: 1;
+    overflow: auto;
+    padding: 8px;
+    min-height: 200px;
+    background: var(--mte-bg-primary);
+}
+
+/* The container is programmatically focused on header/select-all clicks (so
+   keyboard shortcuts reach the handler); it's not a real focus target itself. */
+.mte-grid-container:focus {
+    outline: none;
+}
+
+/* Rounded, clipped frame around the table. */
+.mte-grid-wrap {
+    display: inline-block;
+    border: 1px solid var(--mte-grid-outer);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.mte-grid {
+    border-collapse: collapse;
+    width: max-content;
+    table-layout: fixed;
+    font-size: 13px;
+    font-family: var(--mte-font-family);
+}
+
+.mte-grid th,
+.mte-grid td {
+    border: 1px solid var(--mte-grid-line);
+    padding: 0;
+    position: relative;
+}
+
+/* Row-number / corner gutter cells. */
+.mte-grid .row-number {
+    background: var(--mte-bg-header);
+    color: var(--mte-text-faint);
+    font-size: 11px;
+    font-weight: 600;
+    text-align: center;
+    width: 34px;
+    min-width: 34px;
+    height: 33px;
+    cursor: pointer;
+    user-select: none;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.03em;
+}
+
+.mte-grid .row-number:hover {
+    background: var(--mte-bg-hover);
+}
+
+.mte-grid .row-number.selected {
+    background: var(--mte-bg-selected);
+    color: var(--mte-accent-text);
+}
+
+/* Corner cell (select all). */
+.mte-grid .corner-cell {
+    height: 30px;
+    text-align: center;
+    vertical-align: middle;
+}
+
+.mte-grid .corner-cell svg {
+    width: 16px;
+    height: 16px;
+    color: var(--mte-icon-muted);
+    vertical-align: middle;
+}
+
+.mte-grid .corner-cell:hover svg {
+    color: var(--mte-accent-text);
+}
+
+.mte-grid .corner-cell.selected {
+    background: var(--mte-bg-selected);
+}
+
+.mte-grid .corner-cell.selected svg {
+    color: var(--mte-accent-text);
+}
+
+/* Column control row (letter + sort + alignment). */
+.mte-grid .col-header {
+    background: var(--mte-bg-header);
+    height: 30px;
+    padding: 0 8px;
+    vertical-align: middle;
+    overflow: hidden;
+}
+
+.mte-grid .col-header.selected {
+    background: var(--mte-bg-selected);
+}
+
+.mte-grid .col-header-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    overflow: hidden;
+}
+
+.mte-grid .col-letter {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--mte-text-label);
+    letter-spacing: 0.03em;
+    cursor: pointer;
+    user-select: none;
+    padding: 0;
+    transition: color 0.12s ease;
+}
+
+.mte-grid .col-letter:hover {
+    color: var(--mte-accent-text);
+}
+
+/* Sort / alignment mini buttons. */
+.mte-grid .alignment-toggle,
+.mte-grid .sort-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--mte-icon-muted);
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.12s ease, color 0.12s ease;
+}
+
+.mte-grid .alignment-toggle:hover,
+.mte-grid .sort-toggle:hover {
+    background: var(--mte-mini-hover);
+    color: var(--mte-text-secondary);
+}
+
+.mte-grid .sort-toggle.active {
+    color: var(--mte-accent-text);
+}
+
+.mte-grid .alignment-toggle svg,
+.mte-grid .sort-toggle svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* Column resize handle. */
+.mte-grid .col-resize-handle {
+    position: absolute;
+    right: -3px;
+    top: 0;
+    bottom: 0;
+    width: 6px;
+    cursor: col-resize;
+    z-index: 10;
+    background: transparent;
+}
+
+.mte-grid .col-resize-handle:hover,
+.mte-grid .col-resize-handle.resizing {
+    background: var(--mte-accent);
+}
+
+body.mte-resizing,
+body.mte-resizing * {
+    cursor: col-resize !important;
+    user-select: none !important;
+}
+
+/* Data + header cells. */
+.mte-grid .cell {
+    background: var(--mte-bg-primary);
+    height: 33px;
+    overflow: hidden;
+}
+
+.mte-grid .cell.header-cell {
+    background: var(--mte-bg-primary);
+    font-weight: 600;
+}
+
+.mte-grid .cell.selected {
+    background: var(--mte-bg-selected);
+}
+
+/* While drag-selecting cells, suppress text selection and show a cell cursor. */
+.mte-grid.mte-selecting,
+.mte-grid.mte-selecting * {
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.mte-grid.mte-selecting .cell-input {
+    cursor: cell;
+}
+
+.mte-grid .cell-input {
+    width: 100%;
+    box-sizing: border-box;
+    border: none;
+    background: transparent;
+    padding: 6px 9px;
+    font-family: inherit;
+    font-size: 13px;
+    color: var(--mte-text-primary);
+    outline: none;
+}
+
+/* Focus ring is the selection indicator. */
+.mte-grid .cell-input:focus {
+    box-shadow: inset 0 0 0 1px var(--mte-accent), 0 0 0 3px var(--mte-focus-glow);
+    position: relative;
+    z-index: 1;
+}
+
+/* Row hover. */
+.mte-grid tbody tr:hover .cell {
+    background: var(--mte-bg-hover);
+}
+
+.mte-grid tbody tr:hover .cell.selected {
+    background: var(--mte-bg-selected);
+}
+
+/* Column hover preview (triggered from column letter). */
+.mte-grid .col-header.hover-preview {
+    background: var(--mte-bg-hover);
+}
+
+.mte-grid .col-header.hover-preview.selected {
+    background: var(--mte-bg-selected);
+}
+
+.mte-grid .cell.hover-preview {
+    background: var(--mte-bg-hover);
+}
+
+.mte-grid .cell.hover-preview.selected {
+    background: var(--mte-bg-selected);
+}
+
+/* Whole-table hover preview (triggered from corner cell). */
+.mte-grid.table-hover-preview .row-number,
+.mte-grid.table-hover-preview .col-header,
+.mte-grid.table-hover-preview .cell {
+    background: var(--mte-bg-hover);
+}
+
+.mte-grid.table-hover-preview .row-number.selected,
+.mte-grid.table-hover-preview .col-header.selected,
+.mte-grid.table-hover-preview .cell.selected {
+    background: var(--mte-bg-selected);
+}
+
+/* Text alignment in cells. */
+.mte-grid .cell[data-align="left"] .cell-input {
+    text-align: left;
+}
+
+.mte-grid .cell[data-align="center"] .cell-input {
+    text-align: center;
+}
+
+.mte-grid .cell[data-align="right"] .cell-input {
+    text-align: right;
+}

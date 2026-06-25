@@ -1,0 +1,91 @@
+/**
+ * Desktop app layout.
+ *
+ * The app's editor styles (styles.css) handle the grid, toolbar, and theming
+ * under `.mte`. This file lays out the full-window shell — the toolbar on top,
+ * the grid filling the remaining space, a slim status footer — and styles the
+ * two desktop-only controls injected into the toolbar's trailing slot: the
+ * format `<select>` and the Copy button.
+ */
+
+html,
+body {
+    margin: 0;
+    height: 100%;
+}
+
+body {
+    background: var(--mte-bg-primary, #ffffff);
+    overflow: hidden;
+}
+
+/* Full-window shell: toolbar, scrollable grid, footer. */
+.app-shell {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    background: var(--mte-bg-primary);
+}
+
+/* Grid fills all remaining vertical space and scrolls. */
+.app-grid {
+    flex: 1;
+    min-height: 0;
+}
+
+/* Footer: transient status. */
+.app-footer {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 8px 16px;
+    border-top: 1px solid var(--mte-toolbar-border);
+    background: var(--mte-bg-secondary);
+    font-size: 13px;
+    color: var(--mte-text-secondary);
+    min-height: 18px;
+}
+
+.app-status {
+    color: var(--mte-text-muted);
+}
+
+/* --- Desktop-only export controls (injected into the toolbar) ------------- */
+
+/* Output format selector. */
+.mte-format-select {
+    height: 34px;
+    padding: 0 10px;
+    border: 1px solid var(--mte-control-border);
+    border-radius: 8px;
+    background: var(--mte-bg-primary);
+    color: var(--mte-text-secondary);
+    font-family: var(--mte-font-family);
+    font-size: 13px;
+    cursor: pointer;
+}
+
+/* Copy-to-clipboard button (primary accent). */
+.mte-copy-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    border: none;
+    border-radius: 8px;
+    background: var(--mte-accent);
+    color: var(--mte-btn-primary-text);
+    cursor: pointer;
+    padding: 0;
+    transition: background 0.12s ease;
+}
+
+.mte-copy-button:hover {
+    background: var(--mte-accent-hover);
+}
+
+.mte-copy-button svg {
+    width: 18px;
+    height: 18px;
+}

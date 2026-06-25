@@ -1,0 +1,141 @@
+/**
+ * Theme tokens for MaTE (Markdown Table Editor).
+ *
+ * The "look" of the editor — colors, fonts, radius, shadow — expressed entirely
+ * as CSS custom properties under `.mte`. Structural rules in
+ * `editor.css` (and `modal.css`) only ever read these via `var(--mte-*)`, so to
+ * reskin a shell you override the token values here rather than forking the
+ * structure. These defaults are the redesigned "spreadsheet-neutral" look:
+ * a clean light surface with an indigo accent.
+ */
+
+/* CSS Custom Properties for theming — redesigned light theme (default) */
+.mte {
+    --mte-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --mte-font-mono: 'Consolas', 'Monaco', 'Courier New', monospace;
+
+    /* Surfaces */
+    --mte-bg-primary: #ffffff;
+    --mte-bg-secondary: #fafafa;
+    --mte-bg-header: #fafafa;
+    --mte-bg-hover: #f7f7f8;
+    --mte-bg-selected: oklch(0.96 0.025 270);
+    --mte-bg-backdrop: rgba(0, 0, 0, 0.4);
+
+    /* Text */
+    --mte-text-primary: #27272a;
+    --mte-text-secondary: #3f3f46;
+    --mte-text-muted: #71717a;
+    --mte-text-label: #a1a1aa;
+    --mte-text-faint: #c4c4cc;
+
+    /* Borders / lines */
+    --mte-border-color: #f0f0f0;
+    --mte-border-light: #f0f0f0;
+    --mte-border-focus: oklch(0.55 0.16 270);
+    --mte-control-border: #e4e4e7;
+    --mte-grid-outer: #ececef;
+    --mte-grid-line: #f0f0f0;
+    --mte-toolbar-border: #efeff1;
+
+    /* Accent (indigo) */
+    --mte-accent: oklch(0.55 0.16 270);
+    --mte-accent-hover: oklch(0.49 0.16 270);
+    --mte-accent-text: oklch(0.45 0.17 270);
+    --mte-accent-bg: oklch(0.96 0.025 270);
+    --mte-accent-bg-active: oklch(0.92 0.04 270);
+    --mte-accent-border: oklch(0.82 0.06 270);
+    --mte-focus-glow: oklch(0.85 0.06 270 / 0.5);
+
+    /* Toolbar pills */
+    --mte-pill-bg: #f4f4f5;
+    --mte-pill-hover: #e7e7ea;
+    --mte-pill-delete-hover: #fbeaea;
+    --mte-mini-hover: #ededf0;
+
+    /* Icon stroke colors */
+    --mte-icon-insert: oklch(0.55 0.16 270);
+    --mte-icon-tool: #52525b;
+    --mte-icon-delete: oklch(0.58 0.17 25);
+    --mte-icon-disabled: #cbcbd1;
+    --mte-icon-muted: #a1a1aa;
+
+    /* Buttons */
+    --mte-btn-primary-bg: oklch(0.55 0.16 270);
+    --mte-btn-primary-text: #ffffff;
+    --mte-btn-primary-hover: oklch(0.49 0.16 270);
+
+    --mte-btn-secondary-bg: #ffffff;
+    --mte-btn-secondary-text: #3f3f46;
+    --mte-btn-secondary-hover: #f4f4f5;
+    --mte-btn-secondary-border: #e4e4e7;
+
+    --mte-btn-danger-bg: oklch(0.58 0.17 25);
+    --mte-btn-danger-text: #ffffff;
+    --mte-btn-danger-hover: oklch(0.52 0.17 25);
+
+    --mte-tooltip-bg: #27272a;
+    --mte-tooltip-text: #ffffff;
+
+    --mte-shadow: 0 1px 3px rgba(0, 0, 0, 0.10), 0 8px 24px rgba(0, 0, 0, 0.06);
+    --mte-radius: 10px;
+}
+
+/* Dark theme */
+.mte.dark-theme {
+    --mte-bg-primary: #1f1f23;
+    --mte-bg-secondary: #26262b;
+    --mte-bg-header: #26262b;
+    --mte-bg-hover: #2c2c32;
+    --mte-bg-selected: oklch(0.32 0.06 270);
+    --mte-bg-backdrop: rgba(0, 0, 0, 0.6);
+
+    --mte-text-primary: #e4e4e7;
+    --mte-text-secondary: #c4c4cc;
+    --mte-text-muted: #a1a1aa;
+    --mte-text-label: #71717a;
+    --mte-text-faint: #52525b;
+
+    --mte-border-color: #34343a;
+    --mte-border-light: #34343a;
+    --mte-border-focus: oklch(0.72 0.14 270);
+    --mte-control-border: #3f3f46;
+    --mte-grid-outer: #34343a;
+    --mte-grid-line: #2f2f35;
+    --mte-toolbar-border: #2f2f35;
+
+    --mte-accent: oklch(0.7 0.14 270);
+    --mte-accent-hover: oklch(0.76 0.13 270);
+    --mte-accent-text: oklch(0.82 0.1 270);
+    --mte-accent-bg: oklch(0.34 0.06 270);
+    --mte-accent-bg-active: oklch(0.4 0.07 270);
+    --mte-accent-border: oklch(0.5 0.09 270);
+    --mte-focus-glow: oklch(0.5 0.1 270 / 0.5);
+
+    --mte-pill-bg: #2c2c32;
+    --mte-pill-hover: #3a3a42;
+    --mte-pill-delete-hover: #3a2626;
+    --mte-mini-hover: #3a3a42;
+
+    --mte-icon-insert: oklch(0.72 0.14 270);
+    --mte-icon-tool: #b8bcc6;
+    --mte-icon-delete: oklch(0.68 0.16 25);
+    --mte-icon-disabled: #52525b;
+    --mte-icon-muted: #71717a;
+
+    --mte-btn-primary-bg: oklch(0.7 0.14 270);
+    --mte-btn-primary-text: #1a1a1a;
+    --mte-btn-primary-hover: oklch(0.76 0.13 270);
+
+    --mte-btn-secondary-bg: #2c2c32;
+    --mte-btn-secondary-text: #e4e4e7;
+    --mte-btn-secondary-hover: #3a3a42;
+    --mte-btn-secondary-border: #3f3f46;
+
+    --mte-btn-danger-bg: oklch(0.55 0.17 25);
+    --mte-btn-danger-text: #ffffff;
+    --mte-btn-danger-hover: oklch(0.5 0.17 25);
+
+    --mte-tooltip-bg: #0f0f12;
+    --mte-tooltip-text: #e4e4e7;
+}
