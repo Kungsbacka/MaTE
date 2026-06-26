@@ -150,7 +150,7 @@ export class TableEditor {
 
         // Constrain to reasonable bounds. The floor keeps the single-row toolbar
         // (pill groups + Aligned toggle) from clipping on narrow tables.
-        const minWidth = 600;
+        const minWidth = 750;
         const maxWidth = Math.min(window.innerWidth * 0.95, 1400);
         const finalWidth = Math.max(minWidth, Math.min(maxWidth, optimalWidth));
 
