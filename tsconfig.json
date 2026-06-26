@@ -20,6 +20,7 @@
     "core/src/**/*.ts",
     "bookstack/src/**/*.ts",
     "test/**/*.ts",
-    "tauri/frontend/**/*.ts"
+    "tauri/frontend/**/*.ts",
+    "demo/**/*.ts"
   ]
 }

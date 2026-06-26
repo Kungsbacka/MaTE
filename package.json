@@ -5,9 +5,10 @@
   "type": "module",
   "main": "core/src/index.ts",
   "scripts": {
-    "dev": "npx serve .",
+    "dev": "node demo/build.js && npx serve demo/dist",
     "build": "node bookstack/build.js",
     "build:watch": "node bookstack/build.js --watch",
+    "build:demo": "node demo/build.js",
     "typecheck": "tsc --noEmit",
     "typecheck:watch": "tsc --noEmit --watch"
   },

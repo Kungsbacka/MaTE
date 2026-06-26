@@ -23,6 +23,15 @@ consumed by two shells:
 - Keyboard navigation and shortcuts
 - Accessible (ARIA-compliant)
 
+## Live demo
+
+Try MaTE in the browser — no install: **<https://kungsbacka.github.io/MaTE/>**
+
+The demo page has a Markdown textarea and an **Edit table** button that opens the editor;
+saving writes clean Markdown back into the box. It runs the same core engine the BookStack
+integration uses. (Source in [`demo/`](demo/); published to GitHub Pages by
+[`.github/workflows/deploy-demo.yml`](.github/workflows/deploy-demo.yml).)
+
 ## Installation
 
 ### Option 1: Paste into Custom HTML Head (Simplest)
@@ -174,7 +183,9 @@ npm install
 npm run dev
 ```
 
-Then open `test/test-harness.html` in your browser (build first so `dist/` exists).
+This builds the demo and serves it locally; open the printed URL to exercise the editor
+interactively (see [`demo/`](demo/)). To build the demo without serving, run
+`npm run build:demo`.
 
 ### Build
 
@@ -204,7 +215,7 @@ Rust shell.
 
 ## Project Structure
 
-The project is organized into four parts, each in its own top-level folder, sharing one
+The project is organized into five parts, each in its own top-level folder, sharing one
 root `package.json` and `tsconfig.json`:
 
 ```text
@@ -241,9 +252,8 @@ table-editor/
 │   │                      #    own styles.css + app.css (independent of BookStack)
 │   ├── src-tauri/         #    Rust shell (lib.rs, tauri.conf.json, capabilities, icons)
 │   └── README.md
-├── test/                  # 4. Tests + manual harness
-│   ├── test-harness.html
-│   └── test-harness-entry.ts
+├── demo/                  # 4. Live demo (GitHub Pages): index.html + demo.ts + build.js
+├── test/                  # 5. Tests: TESTING.md strategy + automated tests
 ├── dist/                  # Built files (shared output)
 └── package.json
 ```
@@ -282,14 +292,14 @@ const result = await editor.createTable(3, 2);
 
 ## Build Output
 
-`npm run build` emits two files into `dist/`:
+`npm run build` emits one file into `dist/`:
 
 - `table-editor.js` — the BookStack bundle (IIFE, global `MarkdownTableEditor`, minified, CSS
   inlined). This is the single file you paste into BookStack.
-- `table-editor.esm.js` — ESM bundle of the test-harness entry, used by `test/test-harness.html`.
 
 There is no separate CSS file — the editor's styles are inlined into the JS bundle and injected
-into the page at runtime.
+into the page at runtime. (`npm run build:demo` separately emits the live demo into
+`demo/dist/`.)
 
 ## License
 

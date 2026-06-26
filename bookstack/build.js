@@ -77,15 +77,7 @@ const bookstackConfig = {
     }
 };
 
-// Dev build: ESM bundle imported directly by test-harness.html.
-const harnessConfig = {
-    ...shared,
-    entryPoints: [join(repoRoot, 'test', 'test-harness-entry.ts')],
-    outfile: join(distDir, 'table-editor.esm.js'),
-    format: 'esm'
-};
-
-const buildConfigs = [bookstackConfig, harnessConfig];
+const buildConfigs = [bookstackConfig];
 
 async function build() {
     try {

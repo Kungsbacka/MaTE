@@ -1,26 +1,21 @@
 # Test Project
 
-Home for testing the table editor. Currently holds the manual **test harness** for
-exercising the core parser, serializer, and visual editor in a browser. Automated tests
-will live here too.
+Home for testing the table editor.
 
-## Manual test harness
+## Automated tests
 
-1. Build the bundles (produces `../dist/table-editor.esm.js`, consumed by the harness):
+See [TESTING.md](./TESTING.md) for the testing strategy (tooling, layout, and what to
+cover, core first). Automated tests live alongside the code they cover
+(`core/src/**/*.test.ts`), with shared fixtures under `test/fixtures/`.
 
-   ```bash
-   npm run build        # or: npm run build:watch
-   ```
+## Trying it by hand
 
-2. Serve the repo root and open the harness:
+There's no manual test harness anymore — to exercise the editor interactively, use the
+**live demo** instead:
 
-   ```bash
-   npm run dev
-   ```
+```bash
+npm run dev        # builds demo/ and serves it locally
+```
 
-   Then navigate to `/test/test-harness.html`.
-
-## Files
-
-- `test-harness.html` — interactive page for parse / serialize / round-trip / editor checks.
-- `test-harness-entry.ts` — re-exports the core API as a single ESM bundle for the page.
+Then open the printed URL. The demo has a Markdown textarea and an **Edit table** button
+that opens the editor and writes the result back. See [`demo/`](../demo/).

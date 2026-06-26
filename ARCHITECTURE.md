@@ -27,8 +27,8 @@ Package name: `markdown-table-editor`. License MIT. Org identifier
 
 ## 2. Repo layout
 
-Four top-level parts share **one** root `package.json` and `tsconfig.json`.
-`bookstack` and `tauri` import `core` via **relative `../../core/src/...js` paths**
+Five top-level parts share **one** root `package.json` and `tsconfig.json`.
+`bookstack`, `tauri`, and `demo` import `core` via **relative `../../core/src/...js` paths**
 (the `.js` extension in imports resolves to `.ts` via esbuild + `moduleResolution: bundler`).
 No published package / no path aliases.
 
@@ -36,8 +36,9 @@ No published package / no path aliases.
 core/        # 1. Framework-agnostic editor engine (the heart of the project)
 bookstack/   # 2. BookStack integration + the primary build script
 tauri/       # 3. Desktop app (frontend/ web shell + src-tauri/ Rust shell)
-test/        # 4. Manual browser harness (no automated tests yet)
-dist/        # Build output (git-ignored), shared by core/bookstack + harness
+demo/        # 4. Live demo (GitHub Pages): index.html + demo.ts + build.js
+test/        # 5. Test strategy (TESTING.md) + automated tests
+dist/        # Build output (git-ignored), shared by core/bookstack
 ```
 
 ## 3. Core engine (`core/src/`)
@@ -127,7 +128,6 @@ only affects Markdown padding and is independent of the desktop format selection
 - `src/codemirror-dom.d.ts` — DOM augmentation for CM internals.
 - `build.js` — **the main build** (`npm run build`). esbuild bundles:
   - `dist/table-editor.js` — IIFE, global `MarkdownTableEditor`, minified, CSS inlined via `inlineCssPlugin`.
-  - `dist/table-editor.esm.js` — ESM bundle of the test-harness entry.
   `--watch` flag enables watch mode + sourcemaps + skips minify.
 
 ## 5. Tauri shell (`tauri/`)
@@ -152,15 +152,16 @@ only affects Markdown padding and is independent of the desktop format selection
 | Command | Does |
 | ------- | ---- |
 | `npm install` | Install dev deps (esbuild, typescript). No runtime deps. |
-| `npm run build` | Runs `bookstack/build.js` → `dist/table-editor.js` + `dist/table-editor.esm.js`. |
+| `npm run build` | Runs `bookstack/build.js` → `dist/table-editor.js`. |
 | `npm run build:watch` | Same in watch mode (sourcemaps, unminified). |
-| `npm run typecheck` | `tsc --noEmit` (strict). Covers core/bookstack/test/tauri-frontend `.ts`. |
-| `npm run dev` | `npx serve .` — static server for the test harness. |
+| `npm run build:demo` | Runs `demo/build.js` → self-contained `demo/dist/` (the live demo). |
+| `npm run typecheck` | `tsc --noEmit` (strict). Covers core/bookstack/test/tauri-frontend/demo `.ts`. |
+| `npm run dev` | Builds the demo and serves `demo/dist/` (`npx serve`). |
 | (Tauri) `cargo tauri dev` / `build` from `tauri/` | Runs `frontend/build.js` then the Rust app. Needs Rust + Tauri CLI. |
 
-- **No automated test suite yet.** `test/test-harness.html` is a manual browser page
-  (build first, then `npm run dev`, open `/test/test-harness.html`). `test/README.md`
-  says automated tests will live here.
+- **Testing:** see `test/TESTING.md` for the strategy; automated tests live alongside the
+  code (`core/src/**/*.test.ts`). To exercise the editor by hand, use the live demo
+  (`npm run dev`) — the old manual browser harness has been removed.
 - TS config: ES2020, strict, `noEmit` (esbuild does the actual building), bundler resolution.
 
 ## 7. Conventions & gotchas
