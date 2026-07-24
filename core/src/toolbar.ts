@@ -153,7 +153,7 @@ export function createToolbar(actions: TableEditorActions, state: TableEditorSta
         groups.delete.push({
             id: 'deleteSelection',
             icon: ICONS.deleteSelection,
-            label: t('deleteSelection') + ' (Del)',
+            label: t('deleteSelection'),
             action: actions.deleteSelection,
             enabled: state.canDeleteSelection
         });

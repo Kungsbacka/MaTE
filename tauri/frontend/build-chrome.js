@@ -102,7 +102,7 @@ function buildToolbar() {
             ['moveColumnRight', 'Move column right (Alt+Right)', ICONS.moveColumnRight]
         ]],
         ['delete', [
-            ['deleteSelection', 'Delete selection (Del)', ICONS.deleteSelection]
+            ['deleteSelection', 'Delete selected rows/columns', ICONS.deleteSelection]
         ]],
         ['history', [
             // Undo/redo start disabled on a fresh table — shown here so the
