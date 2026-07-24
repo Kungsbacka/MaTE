@@ -138,6 +138,21 @@ export function deleteRow(table: TableData, dataRowIndex: number): boolean {
 }
 
 /**
+ * Deletes the header row, promoting the first data row to become the new header.
+ * Column alignments are kept (they belong to the columns, not the rows).
+ * Fails when there are no data rows to promote — a table must always keep at
+ * least its header row.
+ * @returns Whether the deletion was successful
+ */
+export function deleteHeaderRow(table: TableData): boolean {
+    if (table.dataRows.length === 0) {
+        return false; // Nothing to promote — keep the header.
+    }
+    table.headerRow = table.dataRows.shift()!;
+    return true;
+}
+
+/**
  * Moves a data row up or down.
  * @returns Whether move was successful
  */

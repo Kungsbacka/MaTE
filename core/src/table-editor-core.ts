@@ -25,6 +25,7 @@ import {
     setCell,
     addRow,
     deleteRow,
+    deleteHeaderRow,
     moveRow,
     addColumn,
     deleteColumn,
@@ -155,7 +156,8 @@ export class TableEditorCore {
     /**
      * Replaces the whole table with one parsed from the clipboard, auto-detecting
      * the format (HTML / Markdown / TSV / CSV). No-op if the clipboard holds no
-     * usable table.
+     * usable table. The replacement is a single undoable step (Ctrl+Z restores
+     * the previous table).
      */
     async pasteTable() {
         let table: TableData | null = null;
@@ -184,23 +186,27 @@ export class TableEditorCore {
     }
 
     /**
-     * Swaps in a new table, rebuilds undo history around it, and re-renders.
+     * Swaps in a new table and re-renders, recording the swap as a single
+     * undoable step so a paste can be undone back to the previous table.
      */
     replaceTable(table: TableData) {
-        if (!this.grid) return;
+        if (!this.grid || !this.undoManager || !this._debouncedPush) return;
+
+        // Commit any pending debounced edit first, so it stays a distinct undo
+        // step that precedes the paste rather than being dropped.
+        this._debouncedPush.flush();
 
         this.table = table;
         this.grid.table = table;
-        this.grid.originalTable = cloneTable(table);
         this.grid.clearSelection();
         this.grid.clearSortState();
         this.grid.recalculateColumnWidths();
         this.grid.render();
 
-        // Reset history to the freshly loaded table.
-        this.undoManager = new UndoManager(table);
-        this.undoManager.setOnChange(() => this.updateToolbarState());
-        this._debouncedPush = createDebouncedPush(this.undoManager, 500);
+        // Record the replacement on the existing history; undo restores the
+        // previous table. (originalTable is left untouched so the change/dirty
+        // state correctly reflects that the table was replaced.)
+        this.undoManager.push(table);
 
         this.updateToolbarState();
         this.options.onChange?.();
@@ -360,17 +366,26 @@ export class TableEditorCore {
         const focusedCell = this.grid.getFocusedCell();
 
         const selectedCols = Array.from(this.grid.getSelectedColumns());
-        const selectedRows = Array.from(this.grid.getSelectedRows()).filter(r => r > 0);
+        const allSelectedRows = Array.from(this.grid.getSelectedRows());
+        const headerSelected = allSelectedRows.includes(0);
+        const selectedRows = allSelectedRows.filter(r => r > 0);
 
-        if (selectedCols.length === 0 && selectedRows.length === 0) return;
+        if (selectedCols.length === 0 && allSelectedRows.length === 0) return;
 
         let deleted = false;
 
-        // Delete from highest index to lowest to avoid index-shift issues.
+        // Delete data rows from highest index to lowest to avoid index-shift issues.
         for (const rowIndex of [...selectedRows].sort((a, b) => b - a)) {
             if (table.dataRows.length > 1 && deleteRow(table, rowIndex - 1)) {
                 deleted = true;
             }
+        }
+
+        // Deleting the header promotes the first remaining data row to header.
+        // Done after the data-row deletions so the promoted row is the topmost
+        // one that survived. No-op when no data row is left to promote.
+        if (headerSelected && deleteHeaderRow(table)) {
+            deleted = true;
         }
 
         for (const colIndex of [...selectedCols].sort((a, b) => b - a)) {
@@ -589,11 +604,19 @@ export class TableEditorCore {
                 const size = selectedCols?.size;
                 const canDeleteCols = size != null && size > 0 && getColumnCount(table) > size;
 
-                const nonHeaderRows = selectedRows ? Array.from(selectedRows).filter(r => r > 0) : [];
+                const rows = selectedRows ? Array.from(selectedRows) : [];
+                const headerSelected = rows.includes(0);
+                const nonHeaderRows = rows.filter(r => r > 0);
+
+                // Data rows: keep at least one data row (unless the header is also
+                // going, in which case one data row is promoted to header).
                 const canDeleteRows = nonHeaderRows.length > 0 &&
                     table.dataRows.length > nonHeaderRows.length;
 
-                return canDeleteCols || canDeleteRows;
+                // Header: deletable only when a data row exists to take its place.
+                const canDeleteHeader = headerSelected && table.dataRows.length > 0;
+
+                return canDeleteCols || canDeleteRows || canDeleteHeader;
             },
             canUndo: () => this.undoManager?.canUndo() ?? false,
             canRedo: () => this.undoManager?.canRedo() ?? false,
