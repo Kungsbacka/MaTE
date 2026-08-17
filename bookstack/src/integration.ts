@@ -235,6 +235,9 @@ export class BookStackTableEditor {
     button: HTMLElement | null;
     initialized: boolean;
 
+    /** Guards against stacking a second editor over an open one. */
+    private _editorOpen: boolean = false;
+
     constructor(options: IntegrationOptions) {
         this.options = { ...DEFAULT_OPTIONS, ...options };
         this.cm = null;
@@ -285,11 +288,29 @@ export class BookStackTableEditor {
             return;
         }
 
+        // The shortcut is bound at document level and stays live while the modal is
+        // open; without this, pressing it again stacks a second editor and both
+        // write back over the same captured line range.
+        if (this._editorOpen) {
+            return;
+        }
+
         const content = getDocumentContent(this.cm);
         const cursorLine = getCursorLine(this.cm);
 
         // Try to parse a table at the cursor
         const parsed = parseTableAtCursor(content, cursorLine);
+
+        // A table was located but couldn't be parsed. Falling through to "create a
+        // new table" here would insert a blank table on top of the user's real one,
+        // so report the problem and leave the document alone.
+        if (!parsed.table && parsed.startLine >= 0) {
+            const reason = parsed.error ?? 'unknown parse error';
+            console.warn(`[TableEditor] Could not parse the table at the cursor: ${reason}`);
+            window.alert(`MaTE could not read the table at the cursor.\n\n${reason}`);
+            focusEditor(this.cm);
+            return;
+        }
 
         const editor = new TableEditor({
             darkTheme: isDarkMode()
@@ -297,22 +318,27 @@ export class BookStackTableEditor {
 
         let result: EditorResult;
 
-        if (parsed.table) {
-            // Edit existing table
-            result = await editor.editTable(parsed.table);
+        this._editorOpen = true;
+        try {
+            if (parsed.table) {
+                // Edit existing table
+                result = await editor.editTable(parsed.table);
 
-            if (result.saved && result.markdown) {
-                replaceLines(this.cm, parsed.startLine, parsed.endLine, result.markdown);
-            }
-        } else {
-            // Create new table
-            result = await editor.createTable(3, 2);
+                if (result.saved && result.markdown) {
+                    replaceLines(this.cm, parsed.startLine, parsed.endLine, result.markdown);
+                }
+            } else {
+                // Create new table
+                result = await editor.createTable(3, 2);
 
-            if (result.saved && result.markdown) {
-                // Insert with blank lines
-                const insertText = '\n\n' + result.markdown + '\n\n';
-                insertAtCursor(this.cm, insertText);
+                if (result.saved && result.markdown) {
+                    // Insert with blank lines
+                    const insertText = '\n\n' + result.markdown + '\n\n';
+                    insertAtCursor(this.cm, insertText);
+                }
             }
+        } finally {
+            this._editorOpen = false;
         }
 
         // Return focus to editor

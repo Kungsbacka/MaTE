@@ -128,30 +128,90 @@ function parseSeparatorRow(line: string): Alignment[] {
 
 /**
  * Detects the extent of a markdown table from a cursor position.
+ *
+ * Runs in two stages. First it expands over neighbouring lines that merely
+ * *contain* a pipe, then it anchors the result on the separator row — the one
+ * unambiguous marker of a Markdown table. That second stage matters: prose,
+ * headings and shell snippets contain pipes too, and without it a line like
+ * `Costs | rough estimate` sitting above a table would be swallowed as the
+ * header row, leaving the real table unparseable.
+ *
  * @param documentLines - All lines of the document
  * @param cursorLine - Current cursor line (0-indexed)
  */
 function detectTable(documentLines: string[], cursorLine: number): TableDetectionResult {
+    const notFound = (error: string): TableDetectionResult =>
+        ({ found: false, startLine: -1, endLine: -1, lines: [], error });
+
     // Check if the current line is part of a table
     if (cursorLine < 0 || cursorLine >= documentLines.length) {
-        return { found: false, startLine: -1, endLine: -1, lines: [], error: 'Cursor out of range' };
+        return notFound('Cursor out of range');
     }
 
     const currentLine = documentLines[cursorLine];
     if (!isTableRow(currentLine)) {
-        return { found: false, startLine: -1, endLine: -1, lines: [], error: 'Cursor not in a table row' };
+        return notFound('Cursor not in a table row');
     }
 
-    // Expand upward to find the start of the table
-    let startLine = cursorLine;
-    while (startLine > 0 && isTableRow(documentLines[startLine - 1])) {
-        startLine--;
+    // Stage 1: expand over every adjacent pipe-bearing line.
+    let blockStart = cursorLine;
+    while (blockStart > 0 && isTableRow(documentLines[blockStart - 1])) {
+        blockStart--;
     }
 
-    // Expand downward to find the end of the table
-    let endLine = cursorLine;
-    while (endLine < documentLines.length - 1 && isTableRow(documentLines[endLine + 1])) {
-        endLine++;
+    let blockEnd = cursorLine;
+    while (blockEnd < documentLines.length - 1 && isTableRow(documentLines[blockEnd + 1])) {
+        blockEnd++;
+    }
+
+    // Stage 2: anchor on the separator row. The header is the line directly above
+    // it; anything further up was prose that happened to contain a pipe.
+    let separatorLine = -1;
+    for (let i = blockStart; i <= blockEnd; i++) {
+        if (isSeparatorRow(documentLines[i])) {
+            separatorLine = i;
+            break;
+        }
+    }
+
+    // No separator, or a separator with no header line above it inside the block.
+    if (separatorLine <= blockStart) {
+        return notFound('Cursor not in a table');
+    }
+
+    const startLine = separatorLine - 1;
+
+    // Stage 3: walk down from the separator, taking only lines shaped like data
+    // rows. "Contains a pipe" is too loose in this direction too — trailing prose
+    // such as `See also | notes` would be absorbed as a row and then rewritten as
+    // one on save, corrupting the sentence. The separator sets the expected shape,
+    // so a table written without outer pipes still matches its own rows.
+    const separatorTrimmed = documentLines[separatorLine].trim();
+    const outerPiped = separatorTrimmed.startsWith('|') || separatorTrimmed.endsWith('|');
+    const isDataRowLike = (line: string): boolean => {
+        if (!isTableRow(line)) return false;
+        if (!outerPiped) return true;
+        const trimmed = line.trim();
+        return trimmed.startsWith('|') || trimmed.endsWith('|');
+    };
+
+    let endLine = separatorLine;
+    for (let i = separatorLine + 1; i <= blockEnd; i++) {
+        // A second separator means line i-1 was the header of a following table
+        // glued on without a blank line — stop before it.
+        if (isSeparatorRow(documentLines[i])) {
+            endLine = Math.max(separatorLine, i - 2);
+            break;
+        }
+        if (!isDataRowLike(documentLines[i])) {
+            break;
+        }
+        endLine = i;
+    }
+
+    // The cursor may have been on one of the prose lines we just trimmed away.
+    if (cursorLine < startLine || cursorLine > endLine) {
+        return notFound('Cursor not in a table');
     }
 
     const lines = documentLines.slice(startLine, endLine + 1);

@@ -27,10 +27,15 @@ export const DEFAULT_SETTINGS = {
 };
 
 /**
- * Escapes pipe characters in cell content.
+ * Escapes pipe characters in cell content, and flattens any newlines.
+ *
+ * A raw newline would end the table row early and split it in two, corrupting the
+ * whole table. Cell content should already be single-line (see `getCellContent` in
+ * `table-parse.ts`), so this is a last line of defence for any input path that
+ * hasn't flattened it yet.
  */
 export function escapePipes(content: string): string {
-    return content.replace(/\|/g, '\\|');
+    return content.replace(/\s*(?:\r\n|[\r\n])\s*/g, ' ').replace(/\|/g, '\\|');
 }
 
 /**
@@ -68,7 +73,7 @@ export function calculateColumnWidths(table: TableData): number[] {
     // Ensure minimum width for separator (at least 3 dashes + alignment markers)
     return widths.map((w, i) => {
         const alignment = table.columns[i]?.alignment || 'left';
-        const minWidth = alignment === 'center' ? 5 : 4; // :---: vs :--- or ---:
+        const minWidth = alignment === 'center' ? 5 : 4; // :---: vs ---- or ---:
         return Math.max(w, minWidth);
     });
 }
@@ -109,10 +114,11 @@ export function createSeparatorCell(alignment: Alignment, width: number): string
             return '-'.repeat(dashes) + ':';
         }
         case 'left':
-        default: {
-            const dashes = Math.max(3, width - 1);
-            return ':' + '-'.repeat(dashes);
-        }
+        default:
+            // Plain dashes, no ':'. Left is Markdown's default, so writing an
+            // explicit marker would rewrite every untouched separator in the table
+            // and churn the page's revision diff for no semantic gain.
+            return '-'.repeat(Math.max(3, width));
     }
 }
 

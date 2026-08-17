@@ -1,0 +1,25 @@
+name: CI
+
+# Type-checks and builds the bundle on every push and pull request.
+# There is no test suite yet — see test/TESTING.md for the plan. Once it lands,
+# add `npm run test` as a step here.
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      # Building is a cheap smoke check that the shipped bundle still compiles.
+      - run: npm run build

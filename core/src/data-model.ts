@@ -149,6 +149,12 @@ export function deleteHeaderRow(table: TableData): boolean {
         return false; // Nothing to promote — keep the header.
     }
     table.headerRow = table.dataRows.shift()!;
+    // Promoting the only data row would leave the table with none, breaking the
+    // "always at least one data row" invariant. The parser re-adds an empty row on
+    // the next read anyway, so keep one here and stay symmetric across a save.
+    if (table.dataRows.length === 0) {
+        table.dataRows.push(Array(table.columns.length).fill(''));
+    }
     return true;
 }
 

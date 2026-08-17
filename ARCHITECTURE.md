@@ -3,7 +3,7 @@
 > Orientation doc for working in this repo. Lets you act without re-reading the
 > whole tree. Keep it current: when a fact here changes, update the relevant
 > line. Each section is independent so edits stay local.
-> Last verified against source: 2026-06-22.
+> Last verified against source: 2026-08-17.
 
 ## 1. What it is
 
@@ -37,7 +37,7 @@ core/        # 1. Framework-agnostic editor engine (the heart of the project)
 bookstack/   # 2. BookStack integration + the primary build script
 tauri/       # 3. Desktop app (frontend/ web shell + src-tauri/ Rust shell)
 demo/        # 4. Live demo (GitHub Pages): index.html + demo.ts + build.js
-test/        # 5. Test strategy (TESTING.md) + automated tests
+test/        # 5. Test strategy (TESTING.md) — no suite written yet
 dist/        # Build output (git-ignored), shared by core/bookstack
 ```
 
@@ -87,8 +87,9 @@ structure: edit `core/src/styles/editor.css` once — both shells pick it up.
   `Column = { alignment: 'left'|'center'|'right' }`.
 - **Row indexing convention** (important): `rowIndex 0` = header, `1+` = data rows.
   Many functions take an index in *data-row* space (header excluded) — read the
-  param doc. The header row can't be moved/deleted; at least 1 data row and 1 column
-  are always kept.
+  param doc. The header row can't be *moved*, but it can be deleted
+  (`deleteHeaderRow` promotes the first data row into it). At least 1 data row and
+  1 column are always kept.
 - `TableData` ops mutate in place (except `cloneTable`); the engine clones defensively.
 
 ### Engine composition pattern
@@ -159,9 +160,10 @@ only affects Markdown padding and is independent of the desktop format selection
 | `npm run dev` | Builds the demo and serves `demo/dist/` (`npx serve`). |
 | (Tauri) `cargo tauri dev` / `build` from `tauri/` | Runs `frontend/build.js` then the Rust app. Needs Rust + Tauri CLI. |
 
-- **Testing:** see `test/TESTING.md` for the strategy; automated tests live alongside the
-  code (`core/src/**/*.test.ts`). To exercise the editor by hand, use the live demo
-  (`npm run dev`) — the old manual browser harness has been removed.
+- **Testing:** `test/TESTING.md` holds the strategy, but **the suite does not exist yet** —
+  there are no `*.test.ts` files and no `test` script. Until it lands, the only way to
+  exercise the editor is by hand via the live demo (`npm run dev`); the old manual browser
+  harness has been removed. CI runs `typecheck` + `build` only (`.github/workflows/ci.yml`).
 - TS config: ES2020, strict, `noEmit` (esbuild does the actual building), bundler resolution.
 
 ## 7. Conventions & gotchas

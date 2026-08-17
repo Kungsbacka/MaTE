@@ -253,7 +253,7 @@ table-editor/
 │   ├── src-tauri/         #    Rust shell (lib.rs, tauri.conf.json, capabilities, icons)
 │   └── README.md
 ├── demo/                  # 4. Live demo (GitHub Pages): index.html + demo.ts + build.js
-├── test/                  # 5. Tests: TESTING.md strategy + automated tests
+├── test/                  # 5. Test strategy (TESTING.md) — no suite written yet
 ├── dist/                  # Built files (shared output)
 └── package.json
 ```

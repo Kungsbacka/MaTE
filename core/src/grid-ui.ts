@@ -689,6 +689,16 @@ export class GridUI {
             return;
         }
 
+        // Arrow navigation keys off the caret sitting at the edge of the value, so
+        // that arrows inside text still move the caret. focusCell() leaves a freshly
+        // focused cell *fully* selected, which is at neither edge — so counting a
+        // full selection as both edges is what makes the first arrow press after
+        // landing on a cell actually move, rather than just collapsing the selection.
+        const fullySelected = input.selectionStart === 0 && input.selectionEnd === input.value.length;
+        const atStart = fullySelected || (input.selectionStart === 0 && input.selectionEnd === 0);
+        const atEnd = fullySelected ||
+            (input.selectionStart === input.value.length && input.selectionEnd === input.value.length);
+
         switch (e.key) {
             case 'Tab':
                 e.preventDefault();
@@ -739,7 +749,7 @@ export class GridUI {
                 break;
 
             case 'ArrowUp':
-                if (input.selectionStart === 0 && input.selectionEnd === 0) {
+                if (atStart) {
                     e.preventDefault();
                     if (row > 0) {
                         this.focusCell(row - 1, col);
@@ -748,7 +758,7 @@ export class GridUI {
                 break;
 
             case 'ArrowDown':
-                if (input.selectionStart === input.value.length) {
+                if (atEnd) {
                     e.preventDefault();
                     if (row < rowCount - 1) {
                         this.focusCell(row + 1, col);
@@ -757,7 +767,7 @@ export class GridUI {
                 break;
 
             case 'ArrowLeft':
-                if (input.selectionStart === 0 && input.selectionEnd === 0) {
+                if (atStart) {
                     e.preventDefault();
                     if (col > 0) {
                         this.focusCell(row, col - 1);
@@ -766,7 +776,7 @@ export class GridUI {
                 break;
 
             case 'ArrowRight':
-                if (input.selectionStart === input.value.length) {
+                if (atEnd) {
                     e.preventDefault();
                     if (col < colCount - 1) {
                         this.focusCell(row, col + 1);
@@ -831,9 +841,13 @@ export class GridUI {
             }
             this.sortState = null;
         } else {
-            // Save original order before first sort
+            // Save the original order before the first sort. This is deliberately a
+            // shallow copy — the outer array is new but the row arrays are the *same*
+            // objects the table holds, so cell edits made while sorted (which mutate
+            // rows in place) are still there when the order is restored. Copying the
+            // rows too would make restoring silently revert those edits.
             if (!this._preSortRows) {
-                this._preSortRows = this.table.dataRows.map(row => [...row]);
+                this._preSortRows = [...this.table.dataRows];
             }
             this.sortState = { column: colIndex, direction: newDirection };
             sortByColumn(this.table, colIndex, newDirection);

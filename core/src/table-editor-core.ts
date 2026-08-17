@@ -222,7 +222,11 @@ export class TableEditorCore {
     // --- Undo / redo ---------------------------------------------------------
 
     private pushUndoState() {
-        this._debouncedPush?.cancel();
+        // Commit any pending debounced edit rather than dropping it, so typing
+        // immediately followed by a toolbar op stays two undo steps instead of one
+        // Ctrl+Z that also throws away what was typed. (Same reasoning as
+        // {@link replaceTable}.)
+        this._debouncedPush?.flush();
         if (this.undoManager && this.grid) {
             this.undoManager.push(this.grid.getTable());
         }
@@ -236,6 +240,9 @@ export class TableEditorCore {
         const focused = this.grid.getFocusedCell();
         this.table = previous;
         this.grid.table = previous;
+        // The restored state carries its own row order, so any sort snapshot now
+        // points at rows from a table we no longer hold.
+        this.grid.clearSortState();
         this.grid.render();
         this.options.onChange?.();
         this.updateToolbarState();
@@ -250,6 +257,7 @@ export class TableEditorCore {
         const focused = this.grid.getFocusedCell();
         this.table = next;
         this.grid.table = next;
+        this.grid.clearSortState();
         this.grid.render();
         this.options.onChange?.();
         this.updateToolbarState();
@@ -291,6 +299,7 @@ export class TableEditorCore {
         this.pushUndoState();
         this.grid.render();
         this.updateToolbarState();
+        this.options.onChange?.();
 
         const newRowIndex = position === 'below' ? refRow + 1 : refRow;
         this.grid.focusCell(newRowIndex, focusedCell?.col ?? 0);
@@ -311,6 +320,7 @@ export class TableEditorCore {
             this.pushUndoState();
             this.grid.render();
             this.updateToolbarState();
+            this.options.onChange?.();
 
             const newRowIndex = direction === 'up' ? rowIndex - 1 : rowIndex + 1;
             if (selectedRow !== null) {
@@ -333,6 +343,7 @@ export class TableEditorCore {
         this.pushUndoState();
         this.grid.render();
         this.updateToolbarState();
+        this.options.onChange?.();
 
         const newColIndex = position === 'right' ? colIndex + 1 : colIndex;
         this.grid.focusCell(focusedCell?.row ?? 0, newColIndex);
@@ -351,6 +362,7 @@ export class TableEditorCore {
             this.pushUndoState();
             this.grid.render();
             this.updateToolbarState();
+            this.options.onChange?.();
 
             const newColIndex = direction === 'left' ? colIndex - 1 : colIndex + 1;
             if (selectedCol !== null) {
@@ -400,6 +412,7 @@ export class TableEditorCore {
             this.grid.clearSelection();
             this.grid.render();
             this.updateToolbarState();
+            this.options.onChange?.();
 
             const newRow = Math.min(focusedCell?.row ?? 0, getRowCount(table) - 1);
             const newCol = Math.min(focusedCell?.col ?? 0, getColumnCount(table) - 1);
@@ -512,6 +525,46 @@ export class TableEditorCore {
         });
     }
 
+    /**
+     * Whether the caret is sitting inside a cell's `<input>` in a state that means
+     * the user is editing *text* rather than acting on cells.
+     *
+     * Ctrl+C/X/V are registered on the whole editor, so without this the handler
+     * would swallow them mid-edit: copying the entire cell instead of the selected
+     * word, clearing the whole cell on cut, and replacing cells on paste instead of
+     * inserting at the caret.
+     *
+     * The discriminator is the input's own text selection. {@link GridUI.focusCell}
+     * leaves a freshly focused cell fully selected, so "fully selected" (or empty)
+     * still means *landed on, not edited* — cell semantics, which keeps pasting a
+     * spreadsheet block onto a clicked cell working. Once the user places the caret
+     * or selects part of the value, it's a text field.
+     */
+    private isEditingCellText(): boolean {
+        const grid = this.grid;
+        if (!grid) return false;
+
+        // A range/row/column selection always means "act on cells" — note that
+        // Shift+Arrow keeps the cell input focused while extending a range.
+        if (grid.isAllSelected() ||
+            grid.getSelectedColumns().size > 0 ||
+            grid.getSelectedRows().size > 0 ||
+            grid.getSelectionRange() != null) {
+            return false;
+        }
+
+        const active = document.activeElement;
+        if (!(active instanceof HTMLInputElement) ||
+            !active.classList.contains('cell-input') ||
+            !this.container.contains(active)) {
+            return false;
+        }
+
+        if (active.value === '') return false;
+        const fullySelected = active.selectionStart === 0 && active.selectionEnd === active.value.length;
+        return !fullySelected;
+    }
+
     private setupKeyboard() {
         const grid = this.grid;
         if (!grid) return;
@@ -541,18 +594,24 @@ export class TableEditorCore {
                 grid.getSelectionRange() != null
         });
 
+        // Cell-level clipboard, but only when the user isn't editing text in a cell
+        // — otherwise the browser's own copy/cut/paste has to win.
+        const actsOnCells = () => !this.isEditingCellText();
+
         this.keyboard.register({
             key: 'c',
             ctrl: true,
             action: () => this.clipboardHandler?.copy(),
-            description: 'Copy'
+            description: 'Copy',
+            condition: actsOnCells
         });
 
         this.keyboard.register({
             key: 'x',
             ctrl: true,
             action: () => this.clipboardHandler?.cut(),
-            description: 'Cut'
+            description: 'Cut',
+            condition: actsOnCells
         });
 
         this.keyboard.register({
@@ -564,7 +623,8 @@ export class TableEditorCore {
                     console.warn('Paste failed:', result.error);
                 }
             },
-            description: 'Paste'
+            description: 'Paste',
+            condition: actsOnCells
         });
 
         this.keyboard.attach(this.options.keyboardTarget ?? this.container);

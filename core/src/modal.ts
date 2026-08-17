@@ -28,6 +28,8 @@ export class Modal {
 
     private _mouseDownOnBackdrop: boolean = false;
     private _dragState: { startX: number; startY: number; startLeft: number; startTop: number; } | null = null;
+    /** True while an onBeforeClose confirmation is pending, to block re-entry. */
+    private _closing: boolean = false;
 
     constructor(options: ModalOptions = {}) {
         this.options = {
@@ -75,11 +77,19 @@ export class Modal {
      * @param force - Skip onBeforeClose check (default: false)
      */
     async close(force: boolean = false) {
-        if (!this.dom) return;
+        // `this.dom` isn't cleared until after the await below, so without the
+        // re-entry guard every extra Escape press while the unsaved-changes
+        // confirmation is open stacks another confirmation dialog on top.
+        if (!this.dom || this._closing) return;
 
         if (!force && this.options.onBeforeClose) {
-            const canClose = await this.options.onBeforeClose();
-            if (canClose === false) return;
+            this._closing = true;
+            try {
+                const canClose = await this.options.onBeforeClose();
+                if (canClose === false) return;
+            } finally {
+                this._closing = false;
+            }
         }
 
         // Remove event listeners
@@ -297,21 +307,33 @@ export function showConfirmDialog(message: string, confirmText: string = 'Discar
         const buttonRow = document.createElement('div');
         buttonRow.className = 'button-row';
 
+        const finish = (result: boolean) => {
+            document.removeEventListener('keydown', handleKeyDown, true);
+            overlay.remove();
+            resolve(result);
+        };
+
+        // Escape dismisses the dialog with the safe answer (keep editing). Captured
+        // on the way down so it doesn't also reach the parent modal's own
+        // document-level Escape handler. Enter needs no handling — the Continue
+        // button holds focus, so the browser activates it.
+        function handleKeyDown(e: KeyboardEvent) {
+            if (e.key !== 'Escape') return;
+            e.preventDefault();
+            e.stopPropagation();
+            finish(false);
+        }
+        document.addEventListener('keydown', handleKeyDown, true);
+
         const discardBtn = document.createElement('button');
         discardBtn.className = 'btn-discard';
         discardBtn.textContent = confirmText;
-        discardBtn.onclick = () => {
-            overlay.remove();
-            resolve(true);
-        };
+        discardBtn.onclick = () => finish(true);
 
         const continueBtn = document.createElement('button');
         continueBtn.className = 'btn-continue';
         continueBtn.textContent = cancelText;
-        continueBtn.onclick = () => {
-            overlay.remove();
-            resolve(false);
-        };
+        continueBtn.onclick = () => finish(false);
 
         buttonRow.appendChild(continueBtn);
         buttonRow.appendChild(discardBtn);

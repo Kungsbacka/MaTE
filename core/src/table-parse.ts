@@ -103,12 +103,15 @@ function parseCSVLine(line: string): string[] {
 export function parseHtmlCells(html: string): string[][] | null {
     if (!html) return null;
 
-    // Create a temporary element to parse the HTML
-    const container = document.createElement('div');
-    container.innerHTML = html;
+    // Parse into an inert document rather than assigning to innerHTML. This HTML
+    // comes off the system clipboard, i.e. from wherever the user last copied, and
+    // innerHTML on a live document runs inline handlers — `<img src=x onerror=...>`
+    // fires even on a detached element. DOMParser loads no resources and executes
+    // nothing, so pasted markup can't run script on the host page.
+    const parsed = new DOMParser().parseFromString(html, 'text/html');
 
     // Find the first table element
-    const table = container.querySelector('table');
+    const table = parsed.querySelector('table');
     if (!table) return null;
 
     // Get all rows from thead, tbody, and tfoot
@@ -203,19 +206,19 @@ function getCellContent(cell: Element): string {
         br.replaceWith(' ');
     });
 
-    // Replace block elements with newlines
+    // Block elements become a space for the same reason as <br>: a Markdown table
+    // cell is a single line. Keeping their newlines would put a raw '\n' in the
+    // model, and the serializer would emit it mid-row and split the row in two.
     clone.querySelectorAll('p, div').forEach(el => {
-        el.insertAdjacentText('afterend', '\n');
+        el.insertAdjacentText('afterend', ' ');
     });
 
     // Get text content and clean up
     let text = clone.textContent || '';
 
-    // Normalize whitespace: collapse multiple spaces/tabs to single space, but preserve newlines
-    text = text.replace(/[ \t]+/g, ' ');
-
-    // Trim leading/trailing whitespace from each line and the whole string
-    text = text.split('\n').map(line => line.trim()).join('\n').trim();
+    // Collapse every whitespace run — spaces, tabs, and any newlines the source
+    // markup carried — to a single space, so the cell stays on one line.
+    text = text.replace(/\s+/g, ' ').trim();
 
     return text;
 }
