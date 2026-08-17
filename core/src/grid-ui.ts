@@ -689,15 +689,22 @@ export class GridUI {
             return;
         }
 
-        // Arrow navigation keys off the caret sitting at the edge of the value, so
-        // that arrows inside text still move the caret. focusCell() leaves a freshly
-        // focused cell *fully* selected, which is at neither edge — so counting a
-        // full selection as both edges is what makes the first arrow press after
-        // landing on a cell actually move, rather than just collapsing the selection.
-        const fullySelected = input.selectionStart === 0 && input.selectionEnd === input.value.length;
-        const atStart = fullySelected || (input.selectionStart === 0 && input.selectionEnd === 0);
-        const atEnd = fullySelected ||
-            (input.selectionStart === input.value.length && input.selectionEnd === input.value.length);
+        // The two axes divide the work:
+        //
+        //  - Up/Down are pure cell navigation and always move. A single-line input has
+        //    no vertical caret movement worth the press — left to the browser they
+        //    just jump to the start/end of the text, which costs a press and is what
+        //    Home/End are for.
+        //  - Left/Right traverse the text first and only move a cell once the caret
+        //    already sits at that edge. A fully selected value (what focusCell leaves
+        //    behind) is at neither edge, so that press falls through to the browser,
+        //    which collapses the caret to the start or end; the next one moves.
+        //
+        // An empty cell needs no special case: both predicates are true there, so
+        // every arrow moves immediately.
+        const length = input.value.length;
+        const collapsedAtStart = input.selectionStart === 0 && input.selectionEnd === 0;
+        const collapsedAtEnd = input.selectionStart === length && input.selectionEnd === length;
 
         switch (e.key) {
             case 'Tab':
@@ -749,25 +756,23 @@ export class GridUI {
                 break;
 
             case 'ArrowUp':
-                if (atStart) {
-                    e.preventDefault();
-                    if (row > 0) {
-                        this.focusCell(row - 1, col);
-                    }
+                e.preventDefault();
+                if (row > 0) {
+                    this.focusCell(row - 1, col);
                 }
                 break;
 
             case 'ArrowDown':
-                if (atEnd) {
-                    e.preventDefault();
-                    if (row < rowCount - 1) {
-                        this.focusCell(row + 1, col);
-                    }
+                e.preventDefault();
+                if (row < rowCount - 1) {
+                    this.focusCell(row + 1, col);
                 }
                 break;
 
             case 'ArrowLeft':
-                if (atStart) {
+                // Deliberately excludes the fully-selected case: that press belongs to
+                // the browser, which collapses the caret to the start (see above).
+                if (collapsedAtStart) {
                     e.preventDefault();
                     if (col > 0) {
                         this.focusCell(row, col - 1);
@@ -776,7 +781,7 @@ export class GridUI {
                 break;
 
             case 'ArrowRight':
-                if (atEnd) {
+                if (collapsedAtEnd) {
                     e.preventDefault();
                     if (col < colCount - 1) {
                         this.focusCell(row, col + 1);
