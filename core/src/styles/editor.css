@@ -333,6 +333,9 @@ body.mte-resizing * {
     cursor: cell;
 }
 
+/* `font-weight: inherit` is what makes the header row's bold weight reach the
+   text — the UA stylesheet resets an input's font, so the weight declared on
+   `.cell.header-cell` would otherwise stop at the `<td>`. */
 .mte-grid .cell-input {
     width: 100%;
     box-sizing: border-box;
@@ -341,6 +344,7 @@ body.mte-resizing * {
     padding: 6px 9px;
     font-family: inherit;
     font-size: 13px;
+    font-weight: inherit;
     color: var(--mte-text-primary);
     outline: none;
 }
