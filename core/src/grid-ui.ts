@@ -404,6 +404,38 @@ export class GridUI {
     }
 
     /**
+     * Re-renders while keeping the user in the cell they were editing.
+     *
+     * {@link render} rebuilds the DOM from scratch, so a focused cell input is
+     * destroyed and focus falls to `<body>` — the caller is dropped out of the
+     * grid entirely and the arrow keys stop navigating. Where a re-render is a
+     * side effect of acting *on* the focused cell (a cell paste or cut), put
+     * focus back on it afterwards, fully selected, exactly as arrow-key
+     * navigation leaves a cell.
+     *
+     * Focus parked on the container — how a row/column/range selection keeps
+     * keydowns reachable, see {@link _focusContainer} — is left alone: moving it
+     * into a cell input would clear that selection via {@link _handleCellFocus}.
+     */
+    renderPreservingFocus() {
+        const restore = this._hasCellEditFocus() ? this.focusedCell : null;
+        this.render();
+        if (restore) {
+            this.focusCell(restore.row, restore.col);
+        }
+    }
+
+    /**
+     * Whether one of this grid's cell inputs currently holds focus.
+     */
+    private _hasCellEditFocus(): boolean {
+        const active = document.activeElement;
+        return active instanceof HTMLInputElement &&
+            active.classList.contains('cell-input') &&
+            this.container.contains(active);
+    }
+
+    /**
      * Focuses a specific cell.
      */
     focusCell(row: number, col: number) {

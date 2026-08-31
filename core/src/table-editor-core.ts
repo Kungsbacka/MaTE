@@ -517,7 +517,10 @@ export class TableEditorCore {
                     grid.recalculateColumnWidths();
                 }
                 this.pushUndoState();
-                grid.render();
+                // A cell paste/cut that lands on a fully selected cell is still
+                // "in" that cell as far as the user is concerned, so the
+                // re-render must not evict them from it.
+                grid.renderPreservingFocus();
                 this.options.onContentResize?.();
                 this.options.onChange?.();
                 this.updateToolbarState();
