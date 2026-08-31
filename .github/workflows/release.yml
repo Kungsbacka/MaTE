@@ -1,0 +1,184 @@
+name: Release
+
+# Builds the two shipped artifacts and attaches them to a GitHub release:
+#   - dist/table-editor.js  — the single file pasted into BookStack
+#   - MaTE_<version>_x64_en-US.msi / MaTE_<version>_x64-setup.exe — desktop installers
+#
+# Triggered by pushing a version tag (see RELEASING.md). The release is created as a
+# DRAFT, so nothing is public until you review and publish it.
+#
+# Can also be run manually from the Actions tab (workflow_dispatch) to check that both
+# builds still work — that path builds the artifacts but creates no release.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One release run at a time per tag; never cancel a build that is mid-flight.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Fails in seconds if the tag and the versions baked into the artifacts disagree,
+  # rather than after a ten-minute Windows build that produces mislabelled installers.
+  verify-version:
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag must match the project version
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          expected="${tag#v}"
+          conf=$(grep -m1 '"version"' tauri/src-tauri/tauri.conf.json | sed -E 's/.*: *"([^"]+)".*/\1/')
+          cargo_version=$(grep -m1 '^version' tauri/src-tauri/Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+          pkg=$(grep -m1 '"version"' package.json | sed -E 's/.*: *"([^"]+)".*/\1/')
+
+          echo "tag=$tag -> expected version $expected"
+          echo "tauri.conf.json=$conf  Cargo.toml=$cargo_version  package.json=$pkg"
+
+          fail=0
+          # These two name and stamp the installers, so a mismatch ships a wrong filename.
+          [ "$conf" = "$expected" ]          || { echo "::error::tauri.conf.json version ($conf) does not match tag ($expected)"; fail=1; }
+          [ "$cargo_version" = "$expected" ] || { echo "::error::Cargo.toml version ($cargo_version) does not match tag ($expected)"; fail=1; }
+          # package.json is not baked into anything shipped, so this is only a nudge.
+          [ "$pkg" = "$expected" ]           || echo "::warning::package.json version ($pkg) does not match tag ($expected)"
+          exit $fail
+
+  bookstack:
+    name: BookStack bundle
+    needs: [verify-version]
+    # `!cancelled()` (rather than always()) keeps this runnable on workflow_dispatch,
+    # where verify-version is skipped, without resurrecting it on a cancelled run.
+    if: ${{ !cancelled() && needs.verify-version.result != 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Check the bundle is non-empty
+        run: test -s dist/table-editor.js && ls -l dist/table-editor.js
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bookstack-bundle
+          path: dist/table-editor.js
+          if-no-files-found: error
+
+  desktop:
+    name: Windows installers
+    needs: [verify-version]
+    if: ${{ !cancelled() && needs.verify-version.result != 'failure' }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      # The Tauri build shells out to `node frontend/build.js`, which needs esbuild.
+      - run: npm ci
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tauri/src-tauri
+
+      # Building the CLI from source takes minutes, so cache the binary itself. The
+      # version is in the key, so bumping the pin below rebuilds it.
+      - name: Restore the Tauri CLI
+        id: tauri-cli-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-tauri.exe
+          key: cargo-tauri-cli-2.11-${{ runner.os }}
+      - name: Install the Tauri CLI
+        if: steps.tauri-cli-cache.outputs.cache-hit != 'true'
+        run: cargo install tauri-cli --version "^2.11" --locked
+
+      # rust-cache restores target/, which can still hold installers from an earlier
+      # version. Clearing the bundle dir first means whatever exists afterwards was
+      # built by *this* run, so the upload globs below can't pick up a stale file.
+      - name: Clear previous bundle output
+        shell: bash
+        run: rm -rf tauri/src-tauri/target/release/bundle
+
+      # --bundles is explicit rather than relying on tauri.conf.json's "targets": "all",
+      # so this job keeps producing exactly these two files if that config changes.
+      - name: Build the installers
+        working-directory: tauri
+        run: cargo tauri build --bundles msi,nsis
+
+      # Belt and braces: exactly one of each, or fail loudly rather than ship two
+      # differently-versioned installers in one release.
+      - name: Check exactly one installer of each kind
+        working-directory: tauri/src-tauri/target/release/bundle
+        shell: bash
+        run: |
+          ls -lR
+          msi_count=$(find msi -name '*.msi' | wc -l)
+          exe_count=$(find nsis -name '*-setup.exe' | wc -l)
+          echo "msi=$msi_count exe=$exe_count"
+          [ "$msi_count" -eq 1 ] || { echo "::error::expected 1 .msi, found $msi_count"; exit 1; }
+          [ "$exe_count" -eq 1 ] || { echo "::error::expected 1 setup .exe, found $exe_count"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installers
+          path: |
+            tauri/src-tauri/target/release/bundle/msi/*.msi
+            tauri/src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+
+  release:
+    name: Draft GitHub release
+    needs: [bookstack, desktop]
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # needed to create the release and upload assets
+    steps:
+      # Shallow checkout purely so `gh` can infer the repository from the git remote.
+      # --generate-notes is computed server-side, so no history is needed here.
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true           # flatten both artifacts into one directory
+
+      - name: Show and sanity-check the assets
+        shell: bash
+        run: |
+          ls -l artifacts
+          test -s artifacts/table-editor.js || { echo "::error::table-editor.js missing"; exit 1; }
+          compgen -G "artifacts/*.msi"      >/dev/null || { echo "::error::no .msi produced"; exit 1; }
+          compgen -G "artifacts/*.exe"      >/dev/null || { echo "::error::no .exe produced"; exit 1; }
+
+      # Re-runnable: creates the draft the first time, refreshes the assets after that.
+      - name: Create or update the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — replacing its assets."
+            gh release upload "$TAG" artifacts/* --clobber
+          else
+            gh release create "$TAG" \
+              --draft \
+              --title "MaTE $TAG" \
+              --generate-notes \
+              artifacts/*
+          fi
+          gh release view "$TAG"

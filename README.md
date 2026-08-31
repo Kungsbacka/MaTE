@@ -32,13 +32,28 @@ saving writes clean Markdown back into the box. It runs the same core engine the
 integration uses. (Source in [`demo/`](demo/); published to GitHub Pages by
 [`.github/workflows/deploy-demo.yml`](.github/workflows/deploy-demo.yml).)
 
+## Downloads
+
+Every release ships prebuilt files on the
+[Releases page](https://github.com/Kungsbacka/MaTE/releases/latest) - no toolchain
+needed:
+
+- **`table-editor.js`** - the BookStack bundle (see [Installation](#installation) below).
+- **`MaTE_<version>_x64-setup.exe`** - Windows desktop installer.
+- **`MaTE_<version>_x64_en-US.msi`** - the same app as an MSI, for Group Policy / Intune.
+
+The installers are unsigned, so Windows SmartScreen warns on first run; choose
+**More info**, then **Run anyway**. Maintainers: see [RELEASING.md](RELEASING.md).
+
 ## Installation
 
 ### Option 1: Paste into Custom HTML Head (Simplest)
 
 This method embeds the entire table editor directly in BookStack's settings.
 
-1. Build the project:
+1. Get `table-editor.js` - either download it from the
+   [latest release](https://github.com/Kungsbacka/MaTE/releases/latest), or build it
+   yourself:
 
    ```bash
    npm install
@@ -201,8 +216,10 @@ npm run build:watch
 
 ### Desktop App (Tauri)
 
-The standalone desktop app lives in `tauri/` and requires the Rust + Tauri CLI toolchain.
-From the `tauri/` directory:
+Prebuilt Windows installers are attached to every
+[release](https://github.com/Kungsbacka/MaTE/releases/latest). To build it yourself, the
+app lives in `tauri/` and requires the Rust + Tauri CLI toolchain. From the `tauri/`
+directory:
 
 ```bash
 cargo tauri dev     # run in development
