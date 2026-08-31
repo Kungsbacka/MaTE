@@ -115,6 +115,49 @@ function calculateColumnWidths(table: TableData): number[] {
     return widths;
 }
 
+/** Distance from a scroll container's edge at which a drag-select starts scrolling it. */
+const AUTOSCROLL_EDGE = 28;
+
+/** Fastest a drag-select scrolls, in pixels per frame. */
+const AUTOSCROLL_MAX_STEP = 24;
+
+/**
+ * How far to scroll one axis this frame, given where the pointer sits relative
+ * to a scroll container's near/far edge. Zero while the pointer is comfortably
+ * inside; ramps up to {@link AUTOSCROLL_MAX_STEP} as it reaches the edge and
+ * stays there once it's past it, so holding the pointer outside the container
+ * keeps scrolling at full speed.
+ */
+function autoScrollStep(pos: number, near: number, far: number): number {
+    const speed = (overshoot: number) =>
+        Math.ceil(Math.min(1, overshoot / AUTOSCROLL_EDGE) * AUTOSCROLL_MAX_STEP);
+
+    if (pos < near + AUTOSCROLL_EDGE) return -speed(near + AUTOSCROLL_EDGE - pos);
+    if (pos > far - AUTOSCROLL_EDGE) return speed(pos - (far - AUTOSCROLL_EDGE));
+    return 0;
+}
+
+/**
+ * Finds which slot `pos` falls in, given `slots + 1` boundary offsets.
+ * Positions before the first or after the last boundary clamp to the end slots,
+ * which is what lets a drag past the edge of the table keep selecting.
+ */
+function slotAt(edges: number[], pos: number): number {
+    for (let i = 0; i < edges.length - 1; i++) {
+        if (pos < edges[i + 1]) return i;
+    }
+    return edges.length - 2;
+}
+
+/**
+ * Whether an element scrolls in a given axis (both styled to and able to).
+ */
+function isScrollable(el: HTMLElement, style: CSSStyleDeclaration): boolean {
+    const scrolls = (overflow: string) => overflow === 'auto' || overflow === 'scroll' || overflow === 'overlay';
+    return (scrolls(style.overflowY) && el.scrollHeight > el.clientHeight) ||
+        (scrolls(style.overflowX) && el.scrollWidth > el.clientWidth);
+}
+
 /**
  * Grid UI class for rendering and managing the editable table.
  */
@@ -152,6 +195,22 @@ export class GridUI {
     private _dragAnchor: { row: number; col: number; } | null = null;
     /** True once the pointer leaves the anchor cell during a drag-select. */
     private _dragging: boolean = false;
+    /**
+     * Latest pointer position (viewport coordinates) during a drag-select. The
+     * auto-scroll loop keeps extending the range from here, so the selection
+     * still grows while the pointer is held still outside the grid and no
+     * further mousemove events arrive.
+     */
+    private _dragPointer: { x: number; y: number; } | null = null;
+    /**
+     * Row and column boundaries of the rendered grid, measured relative to the
+     * table's top-left corner and cached for the duration of a drag. Table-relative
+     * offsets don't move when a scroll container scrolls, so one measurement holds
+     * for the whole drag.
+     */
+    private _dragEdges: { rows: number[]; cols: number[]; } | null = null;
+    /** Pending auto-scroll frame while a drag-select is active. */
+    private _autoScrollFrame: number | null = null;
     /** Snapshot of dataRows before sorting, for restore on 'none' */
     private _preSortRows: string[][] | null = null;
     private _resizeState: { col: number; startX: number; startWidth: number; } | null = null;
@@ -193,6 +252,7 @@ export class GridUI {
         this._handleResizeEnd = this._handleResizeEnd.bind(this);
         this._handleDragMove = this._handleDragMove.bind(this);
         this._handleDragEnd = this._handleDragEnd.bind(this);
+        this._autoScrollStep = this._autoScrollStep.bind(this);
 
         this.render();
     }
@@ -616,6 +676,25 @@ export class GridUI {
     }
 
     /**
+     * Gets the cell (`<td>`) at a specific position.
+     */
+    private _getCellAt(row: number, col: number): HTMLElement | null {
+        return this.container.querySelector(
+            `.cell[data-row="${row}"][data-col="${col}"]`
+        );
+    }
+
+    /**
+     * Scrolls a cell into view, moving as little as possible and only when the
+     * cell isn't already fully visible. `nearest` on both axes leaves the view
+     * alone for a cell that's already on screen, so keyboard selection doesn't
+     * jitter the grid on every press.
+     */
+    scrollCellIntoView(row: number, col: number) {
+        this._getCellAt(row, col)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
+
+    /**
      * Updates selection styles.
      */
     private _updateSelectionStyles() {
@@ -718,6 +797,10 @@ export class GridUI {
             else if (e.key === 'ArrowLeft') nc = Math.max(0, nc - 1);
             else if (e.key === 'ArrowRight') nc = Math.min(colCount - 1, nc + 1);
             this.selectRange(anchor, { row: nr, col: nc });
+            // Plain arrows ride along with the focus move the browser scrolls for
+            // us; extending a range leaves focus on the original cell, so the
+            // moving edge has to be kept in view by hand.
+            this.scrollCellIntoView(nr, nc);
             return;
         }
 
@@ -992,23 +1075,20 @@ export class GridUI {
     }
 
     /**
-     * Extends the drag-select range as the pointer moves over cells.
+     * Extends the drag-select range as the pointer moves.
      */
     private _handleDragMove(e: MouseEvent) {
         if (!this._dragAnchor) return;
 
-        const el = document.elementFromPoint(e.clientX, e.clientY);
-        const cell = el instanceof Element ? el.closest('.cell') : null;
-        if (!cell) return;
+        this._dragPointer = { x: e.clientX, y: e.clientY };
 
-        const row = parseInt(cell.getAttribute('data-row') ?? '', 10);
-        const col = parseInt(cell.getAttribute('data-col') ?? '', 10);
-        if (Number.isNaN(row) || Number.isNaN(col)) return;
+        const target = this._cellAtPoint(e.clientX, e.clientY);
+        if (!target) return;
 
         if (!this._dragging) {
             // Begin only once the pointer leaves the anchor cell, so a click
             // (mousedown + mouseup in place) still edits rather than selects.
-            if (row === this._dragAnchor.row && col === this._dragAnchor.col) return;
+            if (target.row === this._dragAnchor.row && target.col === this._dragAnchor.col) return;
             this._dragging = true;
             // Drop the text caret started by the mousedown and stop the browser
             // from selecting input text while we drag across cells.
@@ -1016,10 +1096,151 @@ export class GridUI {
                 document.activeElement.blur();
             }
             this.gridElement?.classList.add('mte-selecting');
+            this._startAutoScroll();
         }
 
         e.preventDefault();
-        this.selectRange(this._dragAnchor, { row, col });
+        this.selectRange(this._dragAnchor, target);
+    }
+
+    /**
+     * Resolves the cell a viewport point falls on, by measured geometry rather
+     * than by hit-testing what's under the pointer.
+     *
+     * Hit-testing only answers for points that land on a rendered cell, which
+     * ends a drag the moment the pointer reaches the edge of the window or
+     * strays past the last row. Measuring instead means a point outside the
+     * table still resolves — clamped to the nearest edge cell — so dragging
+     * beyond the grid keeps extending the selection, the way a spreadsheet does.
+     */
+    private _cellAtPoint(x: number, y: number): { row: number; col: number; } | null {
+        if (!this.gridElement) return null;
+
+        if (!this._dragEdges) {
+            this._dragEdges = this._measureCellEdges();
+        }
+        const edges = this._dragEdges;
+        if (!edges) return null;
+
+        const origin = this.gridElement.getBoundingClientRect();
+        return {
+            row: slotAt(edges.rows, y - origin.top),
+            col: slotAt(edges.cols, x - origin.left)
+        };
+    }
+
+    /**
+     * Measures every row and column boundary relative to the table's top-left,
+     * as `count + 1` offsets per axis.
+     */
+    private _measureCellEdges(): { rows: number[]; cols: number[]; } | null {
+        if (!this.gridElement) return null;
+
+        const origin = this.gridElement.getBoundingClientRect();
+        const rows: number[] = [];
+        const cols: number[] = [];
+
+        const rowCount = getRowCount(this.table);
+        for (let r = 0; r < rowCount; r++) {
+            const rect = this._getCellAt(r, 0)?.getBoundingClientRect();
+            if (!rect) return null;
+            if (r === 0) rows.push(rect.top - origin.top);
+            rows.push(rect.bottom - origin.top);
+        }
+
+        const colCount = getColumnCount(this.table);
+        for (let c = 0; c < colCount; c++) {
+            const rect = this._getCellAt(0, c)?.getBoundingClientRect();
+            if (!rect) return null;
+            if (c === 0) cols.push(rect.left - origin.left);
+            cols.push(rect.right - origin.left);
+        }
+
+        return rows.length > 1 && cols.length > 1 ? { rows, cols } : null;
+    }
+
+    /**
+     * Starts the loop that scrolls the grid while the pointer sits at or past
+     * the edge of a scroll container.
+     *
+     * This runs on its own frames rather than off mousemove because a pointer
+     * held still outside the window emits no events, and that's exactly when
+     * the selection most needs to keep growing.
+     */
+    private _startAutoScroll() {
+        if (this._autoScrollFrame === null) {
+            this._autoScrollFrame = requestAnimationFrame(this._autoScrollStep);
+        }
+    }
+
+    private _autoScrollStep() {
+        this._autoScrollFrame = null;
+        if (!this._dragging || !this._dragPointer || !this._dragAnchor) return;
+
+        const { x, y } = this._dragPointer;
+        if (this._scrollTowards(x, y)) {
+            // Content moved under a stationary pointer, so it's over a new cell.
+            const target = this._cellAtPoint(x, y);
+            if (target) {
+                this.selectRange(this._dragAnchor, target);
+            }
+        }
+
+        this._autoScrollFrame = requestAnimationFrame(this._autoScrollStep);
+    }
+
+    /**
+     * Scrolls the innermost enclosing scroller that can still move toward the
+     * pointer. Walking outward means an exhausted inner scroller (the grid
+     * pane scrolled to its end) hands off to the page, instead of the drag
+     * simply stalling there.
+     *
+     * @returns Whether anything actually scrolled.
+     */
+    private _scrollTowards(x: number, y: number): boolean {
+        for (const scroller of this._scrollAncestors()) {
+            const isRoot = scroller === document.scrollingElement;
+            // The root scroller's "viewport" is the window, not its own box,
+            // which spans the whole (scrollable) document.
+            const bounds = isRoot
+                ? { left: 0, top: 0, right: document.documentElement.clientWidth, bottom: document.documentElement.clientHeight }
+                : scroller.getBoundingClientRect();
+
+            const dx = autoScrollStep(x, bounds.left, bounds.right);
+            const dy = autoScrollStep(y, bounds.top, bounds.bottom);
+            if (dx === 0 && dy === 0) continue;
+
+            const { scrollLeft, scrollTop } = scroller;
+            scroller.scrollLeft += dx;
+            scroller.scrollTop += dy;
+            if (scroller.scrollLeft !== scrollLeft || scroller.scrollTop !== scrollTop) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The grid's enclosing scroll containers, innermost first, ending at the
+     * page itself.
+     */
+    private _scrollAncestors(): HTMLElement[] {
+        const scrollers: HTMLElement[] = [];
+
+        let el: HTMLElement | null = this.container;
+        while (el && el !== document.body && el !== document.documentElement) {
+            if (isScrollable(el, getComputedStyle(el))) {
+                scrollers.push(el);
+            }
+            el = el.parentElement;
+        }
+
+        const root = document.scrollingElement;
+        if (root instanceof HTMLElement) {
+            scrollers.push(root);
+        }
+
+        return scrollers;
     }
 
     /**
@@ -1030,12 +1251,19 @@ export class GridUI {
         document.removeEventListener('mousemove', this._handleDragMove);
         document.removeEventListener('mouseup', this._handleDragEnd);
 
+        if (this._autoScrollFrame !== null) {
+            cancelAnimationFrame(this._autoScrollFrame);
+            this._autoScrollFrame = null;
+        }
+
         if (this._dragging) {
             this.gridElement?.classList.remove('mte-selecting');
             this._dragging = false;
             this._focusContainer();
         }
         this._dragAnchor = null;
+        this._dragPointer = null;
+        this._dragEdges = null;
     }
 
     /**
