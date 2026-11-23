@@ -30,7 +30,7 @@ jobs:
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Tag must match the project version
         run: |
           tag="${GITHUB_REF_NAME}"
@@ -58,17 +58,17 @@ jobs:
     if: ${{ !cancelled() && needs.verify-version.result != 'failure' }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run typecheck
       - run: npm run build
       - name: Check the bundle is non-empty
         run: test -s dist/table-editor.js && ls -l dist/table-editor.js
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: bookstack-bundle
           path: dist/table-editor.js
@@ -80,11 +80,11 @@ jobs:
     if: ${{ !cancelled() && needs.verify-version.result != 'failure' }}
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       # The Tauri build shells out to `node frontend/build.js`, which needs esbuild.
       - run: npm ci
@@ -98,7 +98,7 @@ jobs:
       # version is in the key, so bumping the pin below rebuilds it.
       - name: Restore the Tauri CLI
         id: tauri-cli-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin/cargo-tauri.exe
           key: cargo-tauri-cli-2.11-${{ runner.os }}
@@ -132,12 +132,22 @@ jobs:
           [ "$msi_count" -eq 1 ] || { echo "::error::expected 1 .msi, found $msi_count"; exit 1; }
           [ "$exe_count" -eq 1 ] || { echo "::error::expected 1 setup .exe, found $exe_count"; exit 1; }
 
-      - uses: actions/upload-artifact@v4
+      # upload-artifact keeps the folders below the common parent of all its paths,
+      # so uploading msi/ and nsis/ directly would put the installers in subfolders,
+      # and the release job expects them at the top level. One flat folder avoids
+      # that. It lives under bundle/, so the clearing step above also removes it.
+      - name: Collect the installers in one folder
+        working-directory: tauri/src-tauri/target/release/bundle
+        shell: bash
+        run: |
+          mkdir release-assets
+          cp msi/*.msi nsis/*-setup.exe release-assets/
+          ls -l release-assets
+
+      - uses: actions/upload-artifact@v7
         with:
           name: windows-installers
-          path: |
-            tauri/src-tauri/target/release/bundle/msi/*.msi
-            tauri/src-tauri/target/release/bundle/nsis/*-setup.exe
+          path: tauri/src-tauri/target/release/bundle/release-assets/*
           if-no-files-found: error
 
   release:
@@ -150,9 +160,9 @@ jobs:
     steps:
       # Shallow checkout purely so `gh` can infer the repository from the git remote.
       # --generate-notes is computed server-side, so no history is needed here.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
           merge-multiple: true           # flatten both artifacts into one directory
