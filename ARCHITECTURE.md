@@ -105,10 +105,16 @@ range return to `select`. `focusCell(row, col, mode?)` defaults to `select` beca
 every caller is navigation. `Escape` belongs to the modal, not the cell — F2 is the
 way back out of `edit` without moving.
 
-Two rules follow from this and are easy to break:
+Three rules follow from this and are easy to break:
 
 - The mode class lives on the grid **container**, which outlives the re-renders that
   rebuild the grid. Never move it onto `.mte-grid`.
+- When the window or browser tab gets focus back, the browser refocuses the same cell
+  input. `_handleCellFocus` treats focus on the last focused input as a *return* and
+  changes nothing. If it reset the cell to select mode, the whole text would be selected,
+  and the next key would replace a cell that the user was editing. `focusContainer()`
+  clears the "last focused input", so focus that comes back after a header click is a
+  new arrival.
 - `_handleCellKeyDown` must leave `Alt+<arrow>` entirely alone. It's the
   move-row/move-column shortcut, and that handler reads the *focused cell* to decide
   what to move — acting first would move the neighbouring row.

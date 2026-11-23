@@ -247,6 +247,11 @@ export class TableEditorCore {
     }
 
     undo() {
+        // Typing reaches the history only after the debounce, so commit it first.
+        // Otherwise an undo pressed right after typing has nothing to undo (or
+        // skips back past the previous step), and the timer then pushes the
+        // abandoned table on top of the restored one, which discards redo.
+        this._debouncedPush?.flush();
         if (!this.grid || !this.undoManager?.canUndo()) return;
         const previous = this.undoManager.undo();
         if (!previous) return;
@@ -264,6 +269,9 @@ export class TableEditorCore {
     }
 
     redo() {
+        // A pending edit is newer than anything on the redo stack, so committing
+        // it correctly leaves nothing to redo. See undo().
+        this._debouncedPush?.flush();
         if (!this.grid || !this.undoManager?.canRedo()) return;
         const next = this.undoManager.redo();
         if (!next) return;
@@ -295,10 +303,14 @@ export class TableEditorCore {
     private addRow(position: 'above' | 'below') {
         if (!this.grid) return;
         const table = this.grid.getTable();
-        const selectedRow = this.grid.getSelectedRow();
+        const selected = this.grid.getSelectedRows();
         const focusedCell = this.grid.getFocusedCell();
 
-        let refRow = selectedRow ?? focusedCell?.row ?? 1;
+        // With several rows selected, insert outside the selection, not after
+        // whichever row happened to be selected first.
+        let refRow = selected.size > 0
+            ? (position === 'below' ? Math.max(...selected) : Math.min(...selected))
+            : (focusedCell?.row ?? 1);
         // If the header is the reference, add below it as the first data row.
         if (refRow === 0) {
             refRow = 1;
@@ -319,38 +331,75 @@ export class TableEditorCore {
         this.grid.focusCell(newRowIndex, focusedCell?.col ?? 0);
     }
 
-    private moveRow(direction: 'up' | 'down') {
-        if (!this.grid) return;
-        const table = this.grid.getTable();
-        const selectedRow = this.grid.getSelectedRow();
-        const focusedCell = this.grid.getFocusedCell();
-
-        const rowIndex = selectedRow ?? focusedCell?.row;
-        // Can't move the header row.
-        if (rowIndex == null || rowIndex === 0) return;
-
-        if (moveRow(table, rowIndex - 1, direction)) {
-            this.grid.clearSortState();
-            this.pushUndoState();
-            this.grid.render();
-            this.updateToolbarState();
-            this.options.onChange?.();
-
-            const newRowIndex = direction === 'up' ? rowIndex - 1 : rowIndex + 1;
-            if (selectedRow !== null) {
-                this.grid.selectRow(newRowIndex);
-            }
-            this.grid.focusCell(newRowIndex, focusedCell?.col ?? 0);
+    /**
+     * The rows a move acts on, as an inclusive range of grid row indices: the
+     * selected rows when there are any, otherwise the focused cell's row. Null
+     * when they cannot move as one block, because the header row is among them
+     * or because the selection has gaps.
+     */
+    private rowsToMove(): { first: number; last: number; } | null {
+        if (!this.grid) return null;
+        const selected = this.grid.getSelectedRows();
+        if (selected.size === 0) {
+            const row = this.grid.getFocusedCell()?.row;
+            return row == null || row === 0 ? null : { first: row, last: row };
         }
+        const first = Math.min(...selected);
+        const last = Math.max(...selected);
+        if (first === 0 || last - first + 1 !== selected.size) return null;
+        return { first, last };
+    }
+
+    private moveRow(direction: 'up' | 'down') {
+        const grid = this.grid;
+        if (!grid) return;
+        const table = grid.getTable();
+        const block = this.rowsToMove();
+        if (!block) return;
+        const { first, last } = block;
+
+        // Grid row r is data row r - 1. The neighbouring row travels across the
+        // block one swap at a time, which moves the whole block by one.
+        if (direction === 'up') {
+            if (first <= 1) return;
+            for (let r = first - 2; r <= last - 2; r++) moveRow(table, r, 'down');
+        } else {
+            if (last >= getRowCount(table) - 1) return;
+            for (let r = last; r >= first; r--) moveRow(table, r, 'up');
+        }
+
+        const shift = direction === 'up' ? -1 : 1;
+        const hadRowSelection = grid.getSelectedRows().size > 0;
+        const focusedCell = grid.getFocusedCell();
+
+        grid.clearSortState();
+        this.pushUndoState();
+        grid.render();
+        this.options.onChange?.();
+
+        if (hadRowSelection) {
+            // Keep the moved rows selected, so pressing the key again moves them
+            // again. Focus parks on the container like after a header click;
+            // focusing a cell would clear the selection.
+            grid.selectRow(first + shift);
+            grid.selectRow(last + shift, { rangeSelection: true });
+            grid.focusContainer();
+        } else {
+            grid.focusCell(first + shift, focusedCell?.col ?? 0);
+        }
+        this.updateToolbarState();
     }
 
     private addColumn(position: 'left' | 'right') {
         if (!this.grid) return;
         const table = this.grid.getTable();
-        const selectedCol = this.grid.getSelectedColumn();
+        const selected = this.grid.getSelectedColumns();
         const focusedCell = this.grid.getFocusedCell();
 
-        const colIndex = selectedCol ?? focusedCell?.col ?? 0;
+        // Same reason as in addRow.
+        const colIndex = selected.size > 0
+            ? (position === 'right' ? Math.max(...selected) : Math.min(...selected))
+            : (focusedCell?.col ?? 0);
         const insertAt = position === 'right' ? colIndex + 1 : colIndex;
 
         addColumn(table, insertAt);
@@ -363,27 +412,71 @@ export class TableEditorCore {
         this.grid.focusCell(focusedCell?.row ?? 0, newColIndex);
     }
 
-    private moveColumn(direction: 'left' | 'right') {
-        if (!this.grid) return;
-        const table = this.grid.getTable();
-        const selectedCol = this.grid.getSelectedColumn();
-        const focusedCell = this.grid.getFocusedCell();
-
-        const colIndex = selectedCol ?? focusedCell?.col;
-        if (colIndex == null) return;
-
-        if (moveColumn(table, colIndex, direction)) {
-            this.pushUndoState();
-            this.grid.render();
-            this.updateToolbarState();
-            this.options.onChange?.();
-
-            const newColIndex = direction === 'left' ? colIndex - 1 : colIndex + 1;
-            if (selectedCol !== null) {
-                this.grid.selectColumn(newColIndex);
-            }
-            this.grid.focusCell(focusedCell?.row ?? 0, newColIndex);
+    /**
+     * The columns a move acts on, as an inclusive index range: the selected
+     * columns when there are any, otherwise the focused cell's column. Null when
+     * the selection has gaps, because then they cannot move as one block.
+     */
+    private columnsToMove(): { first: number; last: number; } | null {
+        if (!this.grid) return null;
+        const selected = this.grid.getSelectedColumns();
+        if (selected.size === 0) {
+            const col = this.grid.getFocusedCell()?.col;
+            return col == null ? null : { first: col, last: col };
         }
+        const first = Math.min(...selected);
+        const last = Math.max(...selected);
+        if (last - first + 1 !== selected.size) return null;
+        return { first, last };
+    }
+
+    private moveColumn(direction: 'left' | 'right') {
+        const grid = this.grid;
+        if (!grid) return;
+        const table = grid.getTable();
+        const block = this.columnsToMove();
+        if (!block) return;
+        const { first, last } = block;
+
+        // The widths are stored by position, so they move with their columns;
+        // otherwise a moved column takes the width of the one it lands on.
+        const widths = grid.columnWidths;
+        const swapWidths = (a: number, b: number) => {
+            [widths[a], widths[b]] = [widths[b], widths[a]];
+        };
+
+        // The neighbouring column travels across the block one swap at a time.
+        if (direction === 'left') {
+            if (first <= 0) return;
+            for (let c = first - 1; c <= last - 1; c++) {
+                moveColumn(table, c, 'right');
+                swapWidths(c, c + 1);
+            }
+        } else {
+            if (last >= getColumnCount(table) - 1) return;
+            for (let c = last + 1; c >= first + 1; c--) {
+                moveColumn(table, c, 'left');
+                swapWidths(c, c - 1);
+            }
+        }
+
+        const shift = direction === 'left' ? -1 : 1;
+        const hadColumnSelection = grid.getSelectedColumns().size > 0;
+        const focusedCell = grid.getFocusedCell();
+
+        this.pushUndoState();
+        grid.render();
+        this.options.onChange?.();
+
+        if (hadColumnSelection) {
+            // Same reason as in moveRow.
+            grid.selectColumn(first + shift);
+            grid.selectColumn(last + shift, { rangeSelection: true });
+            grid.focusContainer();
+        } else {
+            grid.focusCell(focusedCell?.row ?? 0, first + shift);
+        }
+        this.updateToolbarState();
     }
 
     private deleteSelection() {
@@ -652,25 +745,23 @@ export class TableEditorCore {
     private getToolbarState(): TableEditorState {
         return {
             canMoveRowUp: () => {
-                const rowIndex = this.grid?.getSelectedRow() ?? this.grid?.getFocusedCell()?.row;
                 // Row 0 is the header; row 1 is the first data row (can't move up).
-                return rowIndex != null && rowIndex > 1;
+                const block = this.rowsToMove();
+                return block != null && block.first > 1;
             },
             canMoveRowDown: () => {
                 const table = this.grid?.getTable();
-                if (!table) return false;
-                const rowIndex = this.grid?.getSelectedRow() ?? this.grid?.getFocusedCell()?.row;
-                return rowIndex != null && rowIndex > 0 && rowIndex < getRowCount(table) - 1;
+                const block = this.rowsToMove();
+                return table != null && block != null && block.last < getRowCount(table) - 1;
             },
             canMoveColumnLeft: () => {
-                const colIndex = this.grid?.getSelectedColumn() ?? this.grid?.getFocusedCell()?.col;
-                return colIndex != null && colIndex > 0;
+                const block = this.columnsToMove();
+                return block != null && block.first > 0;
             },
             canMoveColumnRight: () => {
                 const table = this.grid?.getTable();
-                if (!table) return false;
-                const colIndex = this.grid?.getSelectedColumn() ?? this.grid?.getFocusedCell()?.col;
-                return colIndex != null && colIndex < getColumnCount(table) - 1;
+                const block = this.columnsToMove();
+                return table != null && block != null && block.last < getColumnCount(table) - 1;
             },
             canDeleteSelection: () => {
                 const table = this.grid?.getTable();
@@ -695,7 +786,9 @@ export class TableEditorCore {
 
                 return canDeleteCols || canDeleteRows || canDeleteHeader;
             },
-            canUndo: () => this.undoManager?.canUndo() ?? false,
+            // A pending edit is undoable too: undo() commits it first.
+            canUndo: () => (this.undoManager?.canUndo() ?? false) ||
+                (this._debouncedPush?.hasPending() ?? false),
             canRedo: () => this.undoManager?.canRedo() ?? false,
             isAligned: () => this._aligned
         };

@@ -13,6 +13,8 @@ export interface DebouncedPush {
     push: (state: TableData) => void;
     flush: () => void;
     cancel: () => void;
+    /** Whether a state is waiting for the debounce, so it is not in the history yet. */
+    hasPending: () => boolean;
 }
 
 /**
@@ -207,7 +209,9 @@ export function createDebouncedPush(undoManager: UndoManager, delay: number = 30
                 timeoutId = null;
             }
             pendingState = null;
-        }
+        },
+
+        hasPending: () => pendingState !== null
     };
 }
 

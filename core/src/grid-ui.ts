@@ -206,6 +206,11 @@ export class GridUI {
      * from the toolbar, say — lands in select mode.
      */
     private _modeChosen: boolean = false;
+    /**
+     * The cell input that last received focus, while focus has not gone anywhere
+     * else in the grid since. See {@link _handleCellFocus}.
+     */
+    private _lastFocusedInput: HTMLInputElement | null = null;
     /** Last clicked column for shift-range selection */
     private _lastClickedColumn: number | null = null;
     /** Last clicked row for shift-range selection */
@@ -535,9 +540,17 @@ export class GridUI {
         // Only claim the upcoming focus event if there will be one: re-focusing
         // the cell that already has focus raises none, and the flag would then
         // sit armed and mislabel whatever focus arrives next.
-        this._modeChosen = document.activeElement !== input;
+        const arriving = document.activeElement !== input;
+        this._modeChosen = arriving;
         this._setMode(mode);
-        input.focus();
+        if (arriving) {
+            input.focus();
+        } else {
+            // No focus event is coming, so do what _handleCellFocus would have
+            // done: landing on one cell ends any block selection. This is what
+            // collapses a Shift+Arrow range when an arrow stops at the table edge.
+            this.clearSelection();
+        }
         if (mode === 'select') input.select();
     }
 
@@ -635,15 +648,22 @@ export class GridUI {
     }
 
     /**
-     * The cell arrow keys move from while a block of cells is selected.
+     * A reference cell inside the block selection, for when there is no focused
+     * input to read the position off.
      *
-     * A block selection has no focused input to read the position off, and
      * {@link focusedCell} can be stale — clicking a row header never updates it —
-     * so the position comes from the selection itself: the range's moving edge
-     * where there is one, otherwise the top-left cell of whatever is selected.
+     * so the position comes from the selection itself: the given corner of the
+     * range where there is one, otherwise the top-left cell of whatever is
+     * selected.
+     *
+     * @param corner - `'focus'` is the moving corner, which Shift+Arrow extends.
+     *   `'anchor'` is the fixed corner, which a plain arrow moves from — the
+     *   same cell it moves from after a Shift+Arrow range, where the anchor is
+     *   the focused input.
      */
-    private _selectionActiveCell(): { row: number; col: number; } {
-        if (this._rangeFocus) return this._rangeFocus;
+    private _selectionActiveCell(corner: 'focus' | 'anchor'): { row: number; col: number; } {
+        const rangeCorner = corner === 'focus' ? this._rangeFocus : this._rangeAnchor;
+        if (rangeCorner) return rangeCorner;
         if (this.selectionRange) {
             return { row: this.selectionRange.startRow, col: this.selectionRange.startCol };
         }
@@ -675,7 +695,7 @@ export class GridUI {
 
         e.preventDefault();
 
-        const from = this._selectionActiveCell();
+        const from = this._selectionActiveCell(e.shiftKey ? 'focus' : 'anchor');
         let nr = from.row;
         let nc = from.col;
         if (e.key === 'ArrowUp') nr = Math.max(0, nr - 1);
@@ -935,6 +955,14 @@ export class GridUI {
         const row = parseInt(input.getAttribute('data-row') || '0');
         const col = parseInt(input.getAttribute('data-col') || '0');
 
+        // When the window or browser tab gets focus back, the browser refocuses
+        // the input that had it. That is a return, not an arrival: the mode, the
+        // caret and any Shift+Arrow range must stay as they were. Resetting to
+        // select mode here selected the whole text, so the next key replaced
+        // the cell the user was in the middle of editing.
+        if (!this._modeChosen && input === this._lastFocusedInput) return;
+        this._lastFocusedInput = input;
+
         this.focusedCell = { row, col };
         this.clearSelection();
 
@@ -1016,14 +1044,16 @@ export class GridUI {
                 return;
             }
 
+            // At the table edge the target clamps to this same cell. focusCell
+            // still runs then, so the press leaves edit mode and ends any range,
+            // as it would anywhere else.
             if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
                 // A single-line input has no vertical caret movement worth the
                 // press, so Up/Down always mean the cell — from edit mode they
                 // leave it, the way Tab and Enter do.
                 e.preventDefault();
                 const nr = e.key === 'ArrowUp' ? row - 1 : row + 1;
-                if (nr >= 0 && nr < rowCount) this.focusCell(nr, col);
-                else if (editing) this._enterSelectMode(row, col);
+                this.focusCell(Math.max(0, Math.min(rowCount - 1, nr)), col);
                 return;
             }
 
@@ -1033,7 +1063,7 @@ export class GridUI {
             if (editing) return;
             e.preventDefault();
             const nc = e.key === 'ArrowLeft' ? col - 1 : col + 1;
-            if (nc >= 0 && nc < colCount) this.focusCell(row, nc);
+            this.focusCell(row, Math.max(0, Math.min(colCount - 1, nc)));
             return;
         }
 
@@ -1126,7 +1156,9 @@ export class GridUI {
      */
     private _handleAlignmentClick(colIndex: number) {
         cycleColumnAlignment(this.table, colIndex);
-        this.render();
+        // The button's mousedown keeps focus in the cell, so the cell must
+        // survive the re-render or the keyboard goes dead.
+        this.renderPreservingFocus();
 
         if (this.options.onChange) {
             this.options.onChange(this.table);
@@ -1175,7 +1207,10 @@ export class GridUI {
             sortByColumn(this.table, colIndex, newDirection);
         }
 
-        this.render();
+        // Same reason as _handleAlignmentClick. Focus stays at the same position,
+        // which now holds a different row, the way a spreadsheet keeps its
+        // active cell when it sorts.
+        this.renderPreservingFocus();
 
         if (this.options.onChange) {
             this.options.onChange(this.table);
@@ -1262,7 +1297,11 @@ export class GridUI {
 
         if (e.shiftKey) {
             e.preventDefault();
-            const anchor = this._rangeAnchor ?? this.focusedCell ?? { row, col };
+            // focusedCell goes stale when a row or column header is clicked, so a
+            // block selection supplies the anchor itself.
+            const anchor = this._rangeAnchor ??
+                (this.hasBlockSelection() && !this.allSelected ? this._selectionActiveCell('anchor') : null) ??
+                this.focusedCell ?? { row, col };
             this.selectRange(anchor, { row, col });
             this._setMode('select');
             this.focusContainer();
@@ -1489,6 +1528,9 @@ export class GridUI {
      * which would clear the selection via {@link _handleCellFocus}).
      */
     focusContainer() {
+        // Focus that later comes back to the last cell from here is a new
+        // arrival, not a return (see _handleCellFocus).
+        this._lastFocusedInput = null;
         this.container.focus({ preventScroll: true });
     }
 
@@ -1500,26 +1542,10 @@ export class GridUI {
     }
 
     /**
-     * Gets the first selected column index (for backward compatibility).
-     */
-    getSelectedColumn(): number | null {
-        if (this.selectedColumns.size === 0) return null;
-        return this.selectedColumns.values().next().value ?? null;
-    }
-
-    /**
      * Gets all selected column indices.
      */
     getSelectedColumns(): Set<number> {
         return this.selectedColumns;
-    }
-
-    /**
-     * Gets the first selected row index (for backward compatibility).
-     */
-    getSelectedRow(): number | null {
-        if (this.selectedRows.size === 0) return null;
-        return this.selectedRows.values().next().value ?? null;
     }
 
     /**
