@@ -1,6 +1,6 @@
 {
   "name": "markdown-table-editor",
-  "version": "0.1.0",
+  "version": "0.9.0",
   "description": "Visual editor for Markdown tables, with a BookStack integration and a Tauri desktop app",
   "type": "module",
   "main": "core/src/index.ts",
