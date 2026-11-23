@@ -118,6 +118,13 @@ export function createDefaultShortcuts(actions: TableEditorActions): KeyboardSho
             action: actions.redo,
             description: 'Redo'
         });
+        // The usual redo key on Windows.
+        shortcuts.push({
+            key: 'y',
+            ctrl: true,
+            action: actions.redo,
+            description: 'Redo'
+        });
     }
 
     if (actions.addRowBelow) {

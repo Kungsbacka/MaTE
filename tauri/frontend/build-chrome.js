@@ -108,7 +108,7 @@ function buildToolbar() {
             // Undo/redo start disabled on a fresh table — shown here so the
             // disabled style is visible to the designer.
             ['undo', 'Undo (Ctrl+Z)', ICONS.undo, true],
-            ['redo', 'Redo (Ctrl+Shift+Z)', ICONS.redo, true]
+            ['redo', 'Redo (Ctrl+Y)', ICONS.redo, true]
         ]],
         ['paste', [
             ['paste', 'Paste table', ICONS.paste]

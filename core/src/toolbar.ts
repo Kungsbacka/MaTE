@@ -174,7 +174,7 @@ export function createToolbar(actions: TableEditorActions, state: TableEditorSta
         groups.history.push({
             id: 'redo',
             icon: ICONS.redo,
-            label: t('redo') + ' (Ctrl+Shift+Z)',
+            label: t('redo') + ' (Ctrl+Y)',
             action: actions.redo,
             enabled: state.canRedo
         });

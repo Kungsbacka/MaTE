@@ -43,6 +43,20 @@ type SortState = 'none' | 'asc' | 'desc';
  */
 export type CellMode = 'select' | 'edit';
 
+/** A cell position. Row 0 is the table's header row. */
+type CellPos = { row: number; col: number; };
+
+/** Keys that move between cells (or, in edit mode, partly within the text). */
+function isNavigationKey(key: string): boolean {
+    return key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight' ||
+        key === 'Home' || key === 'End' || key === 'PageUp' || key === 'PageDown';
+}
+
+/** Ctrl+A (Cmd+A on macOS). */
+function isSelectAllKey(e: KeyboardEvent): boolean {
+    return (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'a';
+}
+
 /** Wraps inner SVG paths in a 24×24 Lucide-style stroke frame. */
 function strokeIcon(inner: string): string {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
@@ -673,44 +687,69 @@ export class GridUI {
     }
 
     /**
-     * Handles arrow keys while focus is parked on the container rather than in a
-     * cell input — how a row/column/drag selection keeps keydowns reachable, see
-     * {@link focusContainer}.
+     * Handles keys while focus is parked on the container rather than in a cell
+     * input — how a row/column/drag/select-all selection keeps keydowns
+     * reachable, see {@link focusContainer}.
      *
-     * Such a selection is plainly select mode, so the arrows have to mean there
-     * what they mean anywhere else in select mode. Left out, they do nothing at
-     * all, which reads as the editor having gone dead.
+     * Such a selection is plainly select mode, so the keys have to mean what
+     * they mean on a selected cell: navigation moves from the selection's anchor
+     * and Shift+navigation extends it, while Enter, Tab, F2 and typing act on the
+     * anchor cell. Left out, they do nothing at all, which reads as the editor
+     * having gone dead.
      *
-     * Modified presses are left alone: Ctrl+C/X/V, Alt+arrow and the rest are
-     * the editor's own shortcuts, registered on this same container.
+     * Ctrl+C/X/V/Z, Ctrl+Enter, Delete and Alt+arrow are left alone: they are
+     * the editor's own shortcuts, registered on this container or an ancestor.
      */
     private _handleContainerKeyDown(e: KeyboardEvent) {
         // A cell input handles its own keys; this only covers the parked case.
         if (e.target !== this.container) return;
-        if (e.altKey || e.ctrlKey || e.metaKey) return;
+        if (e.isComposing) return;
 
-        const isArrow = e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
-            e.key === 'ArrowLeft' || e.key === 'ArrowRight';
-        if (!isArrow) return;
+        const ctrl = e.ctrlKey || e.metaKey;
+        const anchor = this._selectionActiveCell('anchor');
 
-        e.preventDefault();
+        if (isSelectAllKey(e)) {
+            e.preventDefault();
+            this.selectAll();
+            return;
+        }
 
-        const from = this._selectionActiveCell(e.shiftKey ? 'focus' : 'anchor');
-        let nr = from.row;
-        let nc = from.col;
-        if (e.key === 'ArrowUp') nr = Math.max(0, nr - 1);
-        else if (e.key === 'ArrowDown') nr = Math.min(getRowCount(this.table) - 1, nr + 1);
-        else if (e.key === 'ArrowLeft') nc = Math.max(0, nc - 1);
-        else if (e.key === 'ArrowRight') nc = Math.min(getColumnCount(this.table) - 1, nc + 1);
+        if (isNavigationKey(e.key)) {
+            if (e.altKey) return;
+            e.preventDefault();
+            this._navigate(e, anchor, this._selectionActiveCell('focus'));
+            return;
+        }
 
-        if (e.shiftKey) {
-            const anchor = this._rangeAnchor ?? from;
-            this.selectRange(anchor, { row: nr, col: nc });
-            this.scrollCellIntoView(nr, nc);
-        } else {
-            // Moving onto a single cell ends the block selection — focusCell
-            // clears it — and hands the keyboard back to the grid proper.
-            this.focusCell(nr, nc);
+        if (e.key === 'Tab' && !ctrl && !e.altKey) {
+            e.preventDefault();
+            this._moveForTab(anchor.row, anchor.col, e.shiftKey);
+            return;
+        }
+
+        if (e.key === 'Enter' && !ctrl && !e.altKey) {
+            e.preventDefault();
+            this._moveForEnter(anchor.row, anchor.col, e.shiftKey);
+            return;
+        }
+
+        if (e.key === 'F2') {
+            e.preventDefault();
+            this.focusCell(anchor.row, anchor.col);
+            const input = this._getInputAt(anchor.row, anchor.col);
+            if (input) this._enterEditMode(input, 'end');
+            return;
+        }
+
+        // A key that types text: focus the anchor cell *without* cancelling the
+        // key. The browser then inserts the text into the newly focused input,
+        // where it replaces the selected contents, as typing on a selected cell
+        // does. AltGr (Ctrl+Alt on Windows) types characters such as @ and | on
+        // Nordic keyboards, and a dead key starts an accented letter.
+        const altGr = e.getModifierState('AltGraph');
+        const typesText = (e.key.length === 1 || e.key === 'Dead') && (altGr || (!ctrl && !e.altKey));
+        if (typesText) {
+            this.focusCell(anchor.row, anchor.col);
         }
     }
 
@@ -977,25 +1016,24 @@ export class GridUI {
     }
 
     /**
-     * Handles keyboard navigation.
+     * Handles keys in a focused cell input.
      */
     private _handleCellKeyDown(e: KeyboardEvent) {
         const input = e.target as HTMLInputElement;
         const row = parseInt(input.getAttribute('data-row') || '0');
         const col = parseInt(input.getAttribute('data-col') || '0');
 
-        const rowCount = getRowCount(this.table);
-        const colCount = getColumnCount(this.table);
+        // An IME is building a character; its keys (Enter confirms) are not ours.
+        if (e.isComposing) return;
 
         const editing = this._mode === 'edit';
-        const isArrow = e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
-            e.key === 'ArrowLeft' || e.key === 'ArrowRight';
+        const ctrl = e.ctrlKey || e.metaKey;
 
         // Alt+<arrow> moves the row or column, and is handled by the editor's own
         // keyboard handler on the container. Acting on it here first would shift
         // the focused cell out from under that handler, which reads the focused
         // cell to decide *what* to move — so it would move the neighbouring row.
-        if (isArrow && e.altKey) return;
+        if (isNavigationKey(e.key) && e.altKey) return;
 
         // F2 toggles the two modes in place, the one way to go back to acting on
         // the cell without leaving it (every other exit — Tab, Enter, Up, Down —
@@ -1007,129 +1045,47 @@ export class GridUI {
             return;
         }
 
-        if (isArrow) {
-            // Selecting text inside a cell — the whole point of edit mode. These
-            // presses belong to the browser, including the Ctrl+Shift word-wise
-            // variants, which used to be swallowed along with the rest.
-            if (editing && e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-                return;
-            }
-
-            if (e.shiftKey) {
-                // Extend a rectangular cell range from the anchor, keeping the cell
-                // input focused so successive presses keep extending. Cells are
-                // single-line, so a vertical press arriving from edit mode has no
-                // text meaning: it drops to select mode and starts the range here.
-                e.preventDefault();
-                if (editing) this._enterSelectMode(row, col);
-                const anchor = this._rangeAnchor ?? { row, col };
-                const current = this._rangeFocus ?? { row, col };
-                let nr = current.row;
-                let nc = current.col;
-                if (e.key === 'ArrowUp') nr = Math.max(0, nr - 1);
-                else if (e.key === 'ArrowDown') nr = Math.min(rowCount - 1, nr + 1);
-                else if (e.key === 'ArrowLeft') nc = Math.max(0, nc - 1);
-                else if (e.key === 'ArrowRight') nc = Math.min(colCount - 1, nc + 1);
-                this.selectRange(anchor, { row: nr, col: nc });
-                // Plain arrows ride along with the focus move the browser scrolls for
-                // us; extending a range leaves focus on the original cell, so the
-                // moving edge has to be kept in view by hand.
-                this.scrollCellIntoView(nr, nc);
-                return;
-            }
-
-            // Ctrl+Left/Right is word-wise caret movement while editing.
-            if (editing && (e.ctrlKey || e.metaKey) &&
-                (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-                return;
-            }
-
-            // At the table edge the target clamps to this same cell. focusCell
-            // still runs then, so the press leaves edit mode and ends any range,
-            // as it would anywhere else.
-            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-                // A single-line input has no vertical caret movement worth the
-                // press, so Up/Down always mean the cell — from edit mode they
-                // leave it, the way Tab and Enter do.
-                e.preventDefault();
-                const nr = e.key === 'ArrowUp' ? row - 1 : row + 1;
-                this.focusCell(Math.max(0, Math.min(rowCount - 1, nr)), col);
-                return;
-            }
-
-            // Left/Right: the text while editing, cells otherwise. At the text
-            // edge the press simply does nothing — the input clamps the caret on
-            // its own — so the mode never changes out from under the caret.
+        // Ctrl+A selects the text while editing (the browser's default) and every
+        // cell otherwise.
+        if (isSelectAllKey(e)) {
             if (editing) return;
             e.preventDefault();
-            const nc = e.key === 'ArrowLeft' ? col - 1 : col + 1;
-            this.focusCell(row, Math.max(0, Math.min(colCount - 1, nc)));
+            this.selectAll();
+            this.focusContainer();
             return;
         }
 
-        // Home/End address the text while editing and the row otherwise. Select
-        // mode has to claim them: left to the browser they would collapse the
-        // cell-wide selection that select mode is drawn from, leaving a cell that
-        // looks focused but shows neither caret nor selection.
-        if ((e.key === 'Home' || e.key === 'End') && !editing) {
+        if (isNavigationKey(e.key)) {
+            // Left/Right and Home/End belong to the text while editing, with any
+            // modifier: Ctrl moves by word, Shift selects text. At the text edge
+            // the press simply does nothing — the input clamps the caret on its
+            // own — so the mode never changes out from under the caret.
+            const textKey = e.key === 'ArrowLeft' || e.key === 'ArrowRight' ||
+                e.key === 'Home' || e.key === 'End';
+            if (editing && textKey) return;
+
+            // Everything else means the cell. Up/Down and PageUp/PageDown have no
+            // use in a single-line input, so from edit mode they leave it, the way
+            // Tab and Enter do. Select mode has to claim Home/End too: left to the
+            // browser they would collapse the cell-wide selection that select mode
+            // is drawn from, leaving a cell that shows neither caret nor selection.
             e.preventDefault();
-            const target = e.key === 'Home' ? 0 : colCount - 1;
-            if (e.shiftKey) {
-                const anchor = this._rangeAnchor ?? { row, col };
-                const current = this._rangeFocus ?? { row, col };
-                this.selectRange(anchor, { row: current.row, col: target });
-                this.scrollCellIntoView(current.row, target);
-            } else {
-                this.focusCell(row, target);
-            }
+            if (editing) this._enterSelectMode(row, col);
+            this._navigate(e, { row, col }, this._rangeFocus ?? { row, col });
             return;
         }
 
         switch (e.key) {
             case 'Tab':
                 e.preventDefault();
-                if (e.shiftKey) {
-                    // Move backward
-                    if (col > 0) {
-                        this.focusCell(row, col - 1);
-                    } else if (row > 0) {
-                        this.focusCell(row - 1, colCount - 1);
-                    }
-                } else {
-                    // Move forward
-                    if (col < colCount - 1) {
-                        this.focusCell(row, col + 1);
-                    } else if (row < rowCount - 1) {
-                        this.focusCell(row + 1, 0);
-                    } else {
-                        // At last cell - add new row and move to it
-                        addRow(this.table, this.table.dataRows.length);
-                        this.clearSortState();
-                        if (this.options.onChange) {
-                            this.options.onChange(this.table);
-                        }
-                        this.render();
-                        requestAnimationFrame(() => this.focusCell(row + 1, 0));
-                    }
-                }
+                this._moveForTab(row, col, e.shiftKey);
                 break;
 
             case 'Enter':
-                // Skip if Ctrl is pressed - let the keyboard shortcut handler handle it
-                if (e.ctrlKey || e.metaKey) {
-                    return;
-                }
+                // Ctrl+Enter is the editor's "add row below" shortcut.
+                if (ctrl) return;
                 e.preventDefault();
-                // Insert newline - not supported in input, would need textarea
-                // For now, Shift+Enter moves up instead.
-                const enterRow = e.shiftKey ? row - 1 : row + 1;
-                if (enterRow >= 0 && enterRow < rowCount) {
-                    this.focusCell(enterRow, col);
-                } else if (editing) {
-                    // Nowhere to move, but Enter still means "done with this
-                    // cell" — so leave edit mode rather than stay in it.
-                    this._enterSelectMode(row, col);
-                }
+                this._moveForEnter(row, col, e.shiftKey);
                 break;
 
             case 'Delete':
@@ -1149,6 +1105,139 @@ export class GridUI {
                 // Otherwise the browser edits the text, one character at a time.
                 break;
         }
+    }
+
+    /**
+     * Moves or extends the selection for a navigation key: the arrows, Home,
+     * End, PageUp and PageDown, each with or without Ctrl.
+     *
+     * Shared by the cell input and the parked container, so a key means the
+     * same thing whether one cell or a block is selected.
+     *
+     * @param active - The cell a plain key moves from.
+     * @param moving - The corner of the range that Shift+key extends.
+     */
+    private _navigate(e: KeyboardEvent, active: CellPos, moving: CellPos) {
+        if (e.shiftKey) {
+            const target = this._navigationTarget(e, moving);
+            this.selectRange(this._rangeAnchor ?? active, target);
+            // A plain move rides along with the focus change, which the browser
+            // scrolls into view; extending a range leaves focus where it is, so
+            // the moving corner has to be kept in view by hand.
+            this.scrollCellIntoView(target.row, target.col);
+        } else {
+            // At the table edge the target is this same cell. focusCell still
+            // runs then, so the press ends any range, as it would anywhere else.
+            const target = this._navigationTarget(e, active);
+            this.focusCell(target.row, target.col);
+        }
+    }
+
+    /**
+     * Where a navigation key goes from a cell, clamped to the table.
+     *
+     * - Arrows move one cell; Ctrl+Arrow jumps (see {@link _jumpTarget}).
+     * - Home/End go to the start/end of the row; Ctrl+Home/End to the first
+     *   and last cell of the table.
+     * - PageUp/PageDown move by one screen of rows (see {@link _pageRows}).
+     */
+    private _navigationTarget(e: KeyboardEvent, from: CellPos): CellPos {
+        const lastRow = getRowCount(this.table) - 1;
+        const lastCol = getColumnCount(this.table) - 1;
+        const ctrl = e.ctrlKey || e.metaKey;
+        const { row, col } = from;
+
+        switch (e.key) {
+            case 'ArrowUp':
+                return ctrl ? this._jumpTarget(from, -1, 0) : { row: Math.max(0, row - 1), col };
+            case 'ArrowDown':
+                return ctrl ? this._jumpTarget(from, 1, 0) : { row: Math.min(lastRow, row + 1), col };
+            case 'ArrowLeft':
+                return ctrl ? this._jumpTarget(from, 0, -1) : { row, col: Math.max(0, col - 1) };
+            case 'ArrowRight':
+                return ctrl ? this._jumpTarget(from, 0, 1) : { row, col: Math.min(lastCol, col + 1) };
+            case 'Home':
+                return ctrl ? { row: 0, col: 0 } : { row, col: 0 };
+            case 'End':
+                return ctrl ? { row: lastRow, col: lastCol } : { row, col: lastCol };
+            case 'PageUp':
+                return { row: Math.max(0, row - this._pageRows()), col };
+            case 'PageDown':
+                return { row: Math.min(lastRow, row + this._pageRows()), col };
+            default:
+                return from;
+        }
+    }
+
+    /**
+     * The Ctrl+Arrow target, the way a spreadsheet does it: from a filled cell
+     * whose neighbour is filled too, the last filled cell before an empty one;
+     * otherwise the next filled cell. The table edge when there is none.
+     */
+    private _jumpTarget(from: CellPos, dRow: number, dCol: number): CellPos {
+        const lastRow = getRowCount(this.table) - 1;
+        const lastCol = getColumnCount(this.table) - 1;
+        const step = (p: CellPos): CellPos => ({ row: p.row + dRow, col: p.col + dCol });
+        const inside = (p: CellPos) => p.row >= 0 && p.row <= lastRow && p.col >= 0 && p.col <= lastCol;
+        const filled = (p: CellPos) => getCell(this.table, p.row, p.col).trim() !== '';
+
+        let current = step(from);
+        if (!inside(current)) return from;
+
+        if (filled(from) && filled(current)) {
+            while (inside(step(current)) && filled(step(current))) current = step(current);
+        } else {
+            while (!filled(current) && inside(step(current))) current = step(current);
+        }
+        return current;
+    }
+
+    /**
+     * How many rows PageUp/PageDown move: the rows that fit in the visible part
+     * of the grid, less one, so the row the user was on stays in view.
+     */
+    private _pageRows(): number {
+        const rowHeight = this.gridElement?.tBodies[0]?.rows[0]?.getBoundingClientRect().height ?? 0;
+        if (rowHeight <= 0) return 1;
+        return Math.max(1, Math.floor(this.container.clientHeight / rowHeight) - 1);
+    }
+
+    /**
+     * Tab / Shift+Tab: the next / previous cell, wrapping to the next / previous
+     * row. Tab on the very last cell adds a row and moves into it.
+     */
+    private _moveForTab(row: number, col: number, backward: boolean) {
+        const rowCount = getRowCount(this.table);
+        const colCount = getColumnCount(this.table);
+
+        if (backward) {
+            if (col > 0) this.focusCell(row, col - 1);
+            else if (row > 0) this.focusCell(row - 1, colCount - 1);
+            return;
+        }
+
+        if (col < colCount - 1) {
+            this.focusCell(row, col + 1);
+        } else if (row < rowCount - 1) {
+            this.focusCell(row + 1, 0);
+        } else {
+            addRow(this.table, this.table.dataRows.length);
+            this.clearSortState();
+            if (this.options.onChange) {
+                this.options.onChange(this.table);
+            }
+            this.render();
+            requestAnimationFrame(() => this.focusCell(row + 1, 0));
+        }
+    }
+
+    /**
+     * Enter / Shift+Enter: one row down / up. At the table edge it stays on the
+     * cell; that still means "done with this cell", so it leaves edit mode.
+     */
+    private _moveForEnter(row: number, col: number, up: boolean) {
+        const target = up ? row - 1 : row + 1;
+        this.focusCell(Math.max(0, Math.min(getRowCount(this.table) - 1, target)), col);
     }
 
     /**

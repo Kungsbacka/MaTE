@@ -90,15 +90,22 @@ The cell `<input>` holds focus in **both** — the mode decides which keys the g
 claims and which it leaves to the browser:
 
 - **`select`** — the *cell* is the unit. Arrows move between cells (one press each),
-  Shift+arrows grow a cell range, Home/End jump along the row, Delete/Backspace empty
-  the cell, Ctrl+C copies cells. The value is kept fully selected so typing replaces
-  it; CSS hides both the caret and that text selection, so the cell reads as a
-  selected *cell*.
-- **`edit`** — the *text* is the unit. Arrows move the caret and stop at the text
-  edge (they never leave the cell), Shift+arrows and Ctrl+Shift+arrows select text,
-  Delete/Backspace edit characters, Ctrl+C copies the selection. Vertical arrows are
-  the exception: cells are single-line, so Up/Down always mean the cell and leave
-  edit mode.
+  Ctrl+arrows jump like a spreadsheet, Home/End go along the row, Ctrl+Home/End to the
+  table corners, PageUp/PageDown by one screen of rows. Shift with any of these grows
+  a cell range. Ctrl+A selects all cells, Delete/Backspace empty the cell, Ctrl+C
+  copies cells. The value is kept fully selected so typing replaces it; CSS hides
+  both the caret and that text selection, so the cell reads as a selected *cell*.
+- **`edit`** — the *text* is the unit. Left/Right and Home/End (with any modifier)
+  move the caret or select text and never leave the cell. Ctrl+A selects the text,
+  Delete/Backspace edit characters, Ctrl+C copies the selection. Up/Down and
+  PageUp/PageDown are the exception: cells are single-line, so they always mean the
+  cell and leave edit mode.
+
+`_navigationTarget()` computes where every navigation key goes, and `_navigate()`
+applies it (move, or extend with Shift). Both the cell input's handler and the
+container's handler call them, so a key means the same with one cell or a block
+selected. With a block selected, keys act from its *anchor* (where it started), and
+Shift extends its moving corner.
 
 Transitions: click, typing, and F2 enter `edit`; arrows/Tab/Enter/F2 and any cell
 range return to `select`. `focusCell(row, col, mode?)` defaults to `select` because

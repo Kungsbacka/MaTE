@@ -163,8 +163,11 @@ Clicking a cell, typing, or pressing `F2` starts editing. Arrow keys, `Tab`,
 | Shortcut | Select mode | Edit mode |
 | -------- | ----------- | --------- |
 | `Arrow keys` | Move one cell | Move the cursor through the text (stays in the cell) |
+| `Ctrl+Left/Right` | Jump to the edge of the filled cells (see below) | Move the cursor one word |
 | `Shift+Arrows` | Extend the selection by one cell | Select text (`Ctrl+Shift` selects whole words) |
 | `Home` / `End` | First / last cell of the row | Start / end of the text |
+| `Ctrl+Home` / `Ctrl+End` | First / last cell of the table | Start / end of the text |
+| `Ctrl+A` | Select all cells | Select all text in the cell |
 | `Delete` / `Backspace` | Empty the cell or the selection | Delete one character |
 | `Ctrl+C` / `X` / `V` | Copy / cut / paste cells | Copy / cut / paste text |
 | `F2` | Start editing, cursor at the end | Stop editing, stay on the cell |
@@ -175,13 +178,24 @@ These work the same in both modes:
 | Shortcut | Action |
 | -------- | ------ |
 | `Tab` / `Shift+Tab` | Move to the next / previous cell |
-| `Enter` | Move down |
+| `Enter` / `Shift+Enter` | Move down / up |
 | `Up` / `Down` | Move up / down a cell (cells are single-line) |
-| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / redo |
+| `Ctrl+Up/Down` | Jump to the edge of the filled cells (see below) |
+| `Page Up` / `Page Down` | Move up / down one screen of rows |
+| `Ctrl+Z` | Undo |
+| `Ctrl+Y` / `Ctrl+Shift+Z` | Redo |
 | `Ctrl+Enter` | Add row below |
 | `Alt+Up/Down` | Move row up/down |
 | `Alt+Left/Right` | Move column left/right |
 | `Escape` | Close the editor (prompts if there are unsaved changes) |
+
+`Ctrl+Arrow` works as in a spreadsheet. If the cell and the next cell both have
+text, it goes to the last cell with text before an empty cell. Otherwise it goes to
+the next cell with text. If there is none, it goes to the edge of the table.
+
+`Shift` together with any of the movement keys extends the selection instead of
+moving. When a row, a column or a block of cells is selected, the movement keys,
+`Tab`, `Enter`, `F2` and typing start from the cell where the selection began.
 
 ## Troubleshooting
 
