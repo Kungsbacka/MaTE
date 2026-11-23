@@ -159,6 +159,15 @@ export function deleteHeaderRow(table: TableData): boolean {
 }
 
 /**
+ * Adds an empty header row above the current one, which becomes the first data
+ * row. The reverse of {@link deleteHeaderRow}.
+ */
+export function insertHeaderRow(table: TableData): void {
+    table.dataRows.unshift(table.headerRow);
+    table.headerRow = Array(table.columns.length).fill('');
+}
+
+/**
  * Moves a data row up or down.
  * @returns Whether move was successful
  */

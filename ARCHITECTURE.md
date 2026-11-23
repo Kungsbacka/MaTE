@@ -135,8 +135,9 @@ Three rules follow from this and are easy to break:
 - **Row indexing convention** (important): `rowIndex 0` = header, `1+` = data rows.
   Many functions take an index in *data-row* space (header excluded) — read the
   param doc. The header row can't be *moved*, but it can be deleted
-  (`deleteHeaderRow` promotes the first data row into it). At least 1 data row and
-  1 column are always kept.
+  (`deleteHeaderRow` promotes the first data row into it), and a row can be added
+  above it (`insertHeaderRow` pushes it down to the first data row). At least 1 data
+  row and 1 column are always kept.
 - `TableData` ops mutate in place (except `cloneTable`); the engine clones defensively.
 
 ### Engine composition pattern

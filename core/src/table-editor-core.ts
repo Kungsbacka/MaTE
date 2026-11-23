@@ -26,6 +26,7 @@ import {
     addRow,
     deleteRow,
     deleteHeaderRow,
+    insertHeaderRow,
     moveRow,
     addColumn,
     deleteColumn,
@@ -308,26 +309,28 @@ export class TableEditorCore {
 
         // With several rows selected, insert outside the selection, not after
         // whichever row happened to be selected first.
-        let refRow = selected.size > 0
+        const refRow = selected.size > 0
             ? (position === 'below' ? Math.max(...selected) : Math.min(...selected))
             : (focusedCell?.row ?? 1);
-        // If the header is the reference, add below it as the first data row.
-        if (refRow === 0) {
-            refRow = 1;
-            position = 'above';
+
+        // Grid row r is data row r - 1, except row 0, which is the header row.
+        // Above the header, the new row becomes the header and pushes the old
+        // one down to the first data row.
+        let newRowIndex: number;
+        if (refRow === 0 && position === 'above') {
+            insertHeaderRow(table);
+            newRowIndex = 0;
+        } else {
+            newRowIndex = position === 'below' ? refRow + 1 : refRow;
+            addRow(table, newRowIndex - 1);
         }
 
-        const dataRowIndex = refRow - 1;
-        const insertAt = position === 'below' ? dataRowIndex + 1 : dataRowIndex;
-
-        addRow(table, insertAt);
         this.grid.clearSortState();
         this.pushUndoState();
         this.grid.render();
         this.updateToolbarState();
         this.options.onChange?.();
 
-        const newRowIndex = position === 'below' ? refRow + 1 : refRow;
         this.grid.focusCell(newRowIndex, focusedCell?.col ?? 0);
     }
 
