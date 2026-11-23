@@ -2,10 +2,11 @@
  * Desktop app editor styles — entry sheet.
  *
  * Composes the desktop editor look from the shared core layers: the theme
- * tokens plus the shared widget structure. The modal chrome (`modal.css`) is
+ * tokens, the shared widget structure, and the confirm dialog (shown before the
+ * window closes with unsaved changes). The modal chrome (`modal.css`) is
  * intentionally omitted — the desktop app renders the grid full-window with no
- * modal, backdrop, or confirm dialog. Full-window shell layout (top bar,
- * footer, clipboard controls) lives in `app.css`.
+ * modal. Full-window shell layout (top bar, footer, clipboard controls) lives
+ * in `app.css`.
  *
  * To give the desktop app a *different look* from BookStack, override the theme
  * tokens in the block below — the shared structure in `editor.css` reads every
@@ -18,6 +19,7 @@
 
 @import '../../core/src/styles/tokens.css';
 @import '../../core/src/styles/editor.css';
+@import '../../core/src/styles/confirm.css';
 
 /* --- Desktop reskin: override theme tokens here ---------------------------- */
 /* Example — uncomment and tweak to diverge from the BookStack look:

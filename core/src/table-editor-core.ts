@@ -54,6 +54,14 @@ export interface TableEditorCoreOptions {
     alignedOutput?: boolean;
     /** Fired when the aligned-output toggle flips, so shells can refresh status. */
     onAlignedChange?: (aligned: boolean) => void;
+    /**
+     * When true, a whole-table paste ({@link TableEditorCore.pasteTable}) becomes
+     * the new unchanged state, so {@link TableEditorCore.hasChanges} is false right
+     * after it. The desktop app sets this because "Paste table" is how it loads
+     * data. The modal leaves it off, because there a paste is an edit to the
+     * table that Save writes back.
+     */
+    pasteTableResetsChanges?: boolean;
 }
 
 /**
@@ -167,6 +175,11 @@ export class TableEditorCore {
             return;
         }
         if (!table) return;
+        // Before replaceTable, because it fires onChange and the shell reads
+        // hasChanges() there.
+        if (this.options.pasteTableResetsChanges && this.grid) {
+            this.grid.originalTable = cloneTable(table);
+        }
         this.replaceTable(table);
     }
 
@@ -204,8 +217,9 @@ export class TableEditorCore {
         this.grid.render();
 
         // Record the replacement on the existing history; undo restores the
-        // previous table. (originalTable is left untouched so the change/dirty
-        // state correctly reflects that the table was replaced.)
+        // previous table. originalTable is left alone here, so the replacement
+        // counts as a change, unless pasteTable already moved it (see
+        // pasteTableResetsChanges).
         this.undoManager.push(table);
 
         this.updateToolbarState();
@@ -459,7 +473,15 @@ export class TableEditorCore {
 
         if (cleared) {
             this.pushUndoState();
+            const focused = this.grid.getFocusedCell();
             this.grid.render();
+            // render() rebuilds every input, so focus would fall to <body> and the
+            // editor would go keyboard-dead — arrows, typing, and Ctrl+Z alike,
+            // at exactly the moment undo is most wanted. Put it back: on the
+            // container while a block stays selected (a cell input would clear
+            // that selection), otherwise on the cell that was cleared.
+            if (this.grid.hasBlockSelection()) this.grid.focusContainer();
+            else if (focused) this.grid.focusCell(focused.row, focused.col);
             this.options.onChange?.();
         }
     }
@@ -537,24 +559,19 @@ export class TableEditorCore {
      * word, clearing the whole cell on cut, and replacing cells on paste instead of
      * inserting at the caret.
      *
-     * The discriminator is the input's own text selection. {@link GridUI.focusCell}
-     * leaves a freshly focused cell fully selected, so "fully selected" (or empty)
-     * still means *landed on, not edited* — cell semantics, which keeps pasting a
-     * spreadsheet block onto a clicked cell working. Once the user places the caret
-     * or selects part of the value, it's a text field.
+     * The answer is simply the grid's cell mode. It used to be inferred from the
+     * input's text selection ("fully selected means landed on, not edited"), which
+     * could not tell a freshly navigated-to cell from one the user had just hit
+     * Ctrl+A in — and, because the two rendered identically, gave no way to see
+     * which reading was in force.
      */
     private isEditingCellText(): boolean {
         const grid = this.grid;
         if (!grid) return false;
 
-        // A range/row/column selection always means "act on cells" — note that
-        // Shift+Arrow keeps the cell input focused while extending a range.
-        if (grid.isAllSelected() ||
-            grid.getSelectedColumns().size > 0 ||
-            grid.getSelectedRows().size > 0 ||
-            grid.getSelectionRange() != null) {
-            return false;
-        }
+        // A block selection always means "act on cells" — note that Shift+Arrow
+        // keeps the cell input focused while extending a range.
+        if (grid.hasBlockSelection()) return false;
 
         const active = document.activeElement;
         if (!(active instanceof HTMLInputElement) ||
@@ -563,9 +580,7 @@ export class TableEditorCore {
             return false;
         }
 
-        if (active.value === '') return false;
-        const fullySelected = active.selectionStart === 0 && active.selectionEnd === active.value.length;
-        return !fullySelected;
+        return grid.getMode() === 'edit';
     }
 
     private setupKeyboard() {
@@ -584,18 +599,17 @@ export class TableEditorCore {
             redo: () => this.redo()
         }));
 
-        // Only intercept Delete when a row/column/all selection exists; otherwise
-        // let the browser handle it for in-cell editing.
-        this.keyboard.register({
-            key: 'Delete',
-            action: () => this.clearSelectionContents(),
-            description: 'Clear selection',
-            condition: () =>
-                grid.isAllSelected() ||
-                grid.getSelectedColumns().size > 0 ||
-                grid.getSelectedRows().size > 0 ||
-                grid.getSelectionRange() != null
-        });
+        // Only intercept Delete/Backspace when a block of cells is selected;
+        // otherwise they belong to the focused cell — which empties it in select
+        // mode and edits the text in edit mode, both handled by the grid.
+        for (const key of ['Delete', 'Backspace']) {
+            this.keyboard.register({
+                key,
+                action: () => this.clearSelectionContents(),
+                description: 'Clear selection',
+                condition: () => grid.hasBlockSelection()
+            });
+        }
 
         // Cell-level clipboard, but only when the user isn't editing text in a cell
         // — otherwise the browser's own copy/cut/paste has to win.

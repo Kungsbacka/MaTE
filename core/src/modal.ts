@@ -291,12 +291,23 @@ export class Modal {
 }
 
 /**
- * Shows a confirmation dialog.
+ * Shows a confirmation dialog. Resolves `true` for the confirm (discard) button,
+ * `false` for the cancel button or Escape.
  */
-export function showConfirmDialog(message: string, confirmText: string = 'Discard', cancelText: string = 'Continue Editing'): Promise<boolean> {
+export function showConfirmDialog(
+    message: string,
+    confirmText: string = 'Discard',
+    cancelText: string = 'Continue Editing',
+    darkTheme: boolean = false
+): Promise<boolean> {
     return new Promise((resolve) => {
         const overlay = document.createElement('div');
         overlay.className = 'mte mte-confirm';
+        // The overlay sits on <body>, outside the shell's themed root, so it
+        // needs its own theme class.
+        if (darkTheme) {
+            overlay.classList.add('dark-theme');
+        }
 
         const dialog = document.createElement('div');
         dialog.className = 'mte-confirm-dialog';

@@ -15,6 +15,7 @@ import { TableEditorCore } from '../../core/src/table-editor-core.js';
 import { cloneTable } from '../../core/src/data-model.js';
 import { t } from '../../core/src/i18n.js';
 import { copyTableToClipboard } from '../../core/src/table-clipboard.js';
+import { showConfirmDialog } from '../../core/src/modal.js';
 
 import type { TableData } from '../../core/src/data-model.js';
 import type { OutputFormat } from '../../core/src/table-clipboard.js';
@@ -48,6 +49,7 @@ export class TableApp {
     private outputFormat: OutputFormat = 'markdown';
     private _statusTimer: number | null = null;
     private _copyTimer: number | null = null;
+    private _closePromptOpen = false;
 
     constructor(root: HTMLElement, table: TableData, options: AppOptions = {}) {
         this.root = root;
@@ -70,7 +72,8 @@ export class TableApp {
 
         this.core = new TableEditorCore(this.gridContainer, this.table, {
             onChange: () => this.updateStatus(),
-            keyboardTarget: this.root
+            keyboardTarget: this.root,
+            pasteTableResetsChanges: true
         });
         this.core.mount();
 
@@ -83,7 +86,78 @@ export class TableApp {
         this.root.appendChild(this.gridContainer);
         this.root.appendChild(this.createFooter());
 
+        void this.installCloseGuard();
+        this.blockReloadKeys();
+
         setTimeout(() => this.core?.focusFirstCell(), 50);
+    }
+
+    /**
+     * Blocks the webview's reload shortcuts (F5, Ctrl+R, and their Shift/Ctrl
+     * variants; Cmd+R on macOS). A reload throws the table away without going
+     * through the close guard, and the app has nothing that a reload would fix.
+     * Does nothing outside Tauri, so a browser preview can still be reloaded.
+     */
+    private blockReloadKeys() {
+        if (!window.__TAURI__) return;
+
+        // Capture phase on window, so no element's own keydown handler can stop
+        // the event before this sees it.
+        window.addEventListener('keydown', (e) => {
+            const isReload = e.key === 'F5' ||
+                ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'r');
+            if (isReload) {
+                e.preventDefault();
+            }
+        }, true);
+    }
+
+    /**
+     * Asks before the window closes when the table has changes. This covers the
+     * title-bar X, Alt+F4, and closing from the taskbar, because all of them
+     * raise the same close-requested event. Does nothing outside Tauri.
+     */
+    private async installCloseGuard() {
+        const tauriWindow = window.__TAURI__?.window.getCurrentWindow();
+        if (!tauriWindow) return;
+
+        await tauriWindow.onCloseRequested(async (event) => {
+            if (!this.core?.hasChanges()) return;
+
+            // A second close request while the dialog is open would stack a
+            // second dialog. The open one already decides.
+            if (this._closePromptOpen) {
+                event.preventDefault();
+                return;
+            }
+
+            if (!(await this.confirmDiscardChanges())) {
+                event.preventDefault();
+            }
+        });
+    }
+
+    /**
+     * Shows the "Discard changes?" dialog. Resolves true when the user chooses
+     * to discard. Focus returns to where it was, because the keyboard shortcuts
+     * listen on the app root and focus left on <body> would not reach them.
+     */
+    private async confirmDiscardChanges(): Promise<boolean> {
+        const previousFocus = document.activeElement;
+        this._closePromptOpen = true;
+        try {
+            return await showConfirmDialog(
+                t('discardChanges'),
+                t('discard'),
+                t('continueEditing'),
+                this.options.darkTheme
+            );
+        } finally {
+            this._closePromptOpen = false;
+            if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
+                previousFocus.focus();
+            }
+        }
     }
 
     /**

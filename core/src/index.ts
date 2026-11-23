@@ -209,7 +209,8 @@ export class TableEditor {
             const discard = await showConfirmDialog(
                 t('discardChanges'),
                 t('discard'),
-                t('continueEditing')
+                t('continueEditing'),
+                this.options.darkTheme
             );
             return discard;
         }

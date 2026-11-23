@@ -9,6 +9,7 @@
     "beforeBuildCommand": "node frontend/build.js"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "title": "MaTE",

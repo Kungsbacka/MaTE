@@ -4,7 +4,7 @@
  * Composes the full editor look for the modal `TableEditor` shell by layering
  * the shared structure on top of the theme, then adding the modal chrome.
  * The desktop app composes its own entry sheet (tauri/frontend/styles.css) from
- * the same `tokens.css` + `editor.css` but omits `modal.css`.
+ * the same `tokens.css` + `editor.css` + `confirm.css` but omits `modal.css`.
  *
  * These `@import`s are resolved and inlined at build time by esbuild
  * (see bookstack/build.js), so the shipped bundle is a single self-contained
@@ -13,6 +13,7 @@
 
 @import '../../../core/src/styles/tokens.css';
 @import '../../../core/src/styles/editor.css';
+@import '../../../core/src/styles/confirm.css';
 @import './modal.css';
 
 /* --- BookStack reskin: match BookStack's own palette ----------------------- *

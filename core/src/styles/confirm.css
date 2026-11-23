@@ -1,0 +1,70 @@
+/**
+ * Confirm dialog ("Discard changes?").
+ *
+ * Shared by both shells: the BookStack modal asks before Cancel/close, and the
+ * desktop app asks before the window closes. The overlay is appended to
+ * `<body>`, outside the shell's own `.mte` root, so `showConfirmDialog` puts
+ * `mte` (and `dark-theme` when asked) on the overlay itself to pick up the tokens.
+ */
+
+.mte-confirm {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--mte-bg-backdrop);
+    z-index: 10001;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mte-confirm-dialog {
+    background: var(--mte-bg-primary);
+    border-radius: var(--mte-radius);
+    box-shadow: var(--mte-shadow);
+    padding: 24px;
+    max-width: 400px;
+    text-align: center;
+    font-family: var(--mte-font-family);
+}
+
+.mte-confirm-dialog p {
+    margin: 0 0 20px;
+    font-size: 15px;
+    color: var(--mte-text-primary);
+}
+
+.mte-confirm-dialog .button-row {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+.mte-confirm-dialog button {
+    padding: 8px 20px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+}
+
+.mte-confirm-dialog .btn-discard {
+    background: var(--mte-btn-danger-bg);
+    color: var(--mte-btn-danger-text);
+    border: none;
+}
+
+.mte-confirm-dialog .btn-discard:hover {
+    background: var(--mte-btn-danger-hover);
+}
+
+.mte-confirm-dialog .btn-continue {
+    background: var(--mte-btn-secondary-bg);
+    color: var(--mte-btn-secondary-text);
+    border: 1px solid var(--mte-border-color);
+}
+
+.mte-confirm-dialog .btn-continue:hover {
+    background: var(--mte-btn-secondary-hover);
+}

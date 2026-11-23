@@ -28,6 +28,21 @@ interface GridOptions {
 
 type SortState = 'none' | 'asc' | 'desc';
 
+/**
+ * Which unit the keyboard acts on in the focused cell.
+ *
+ * - `'select'` — the *cell* is the unit. No caret; arrows move between cells,
+ *   Shift+arrows grow a cell range, Delete clears the cell, Ctrl+C copies cells.
+ * - `'edit'` — the *text* is the unit. Caret visible; arrows move it,
+ *   Shift+arrows select text, Delete removes characters, Ctrl+C copies text.
+ *
+ * The cell `<input>` holds focus in both modes — the mode decides which keys
+ * this grid claims and which it leaves to the browser. Without it the two are
+ * indistinguishable, both to the code (it used to guess from the input's text
+ * selection) and to the user (they rendered identically).
+ */
+export type CellMode = 'select' | 'edit';
+
 /** Wraps inner SVG paths in a 24×24 Lucide-style stroke frame. */
 function strokeIcon(inner: string): string {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
@@ -183,6 +198,14 @@ export class GridUI {
     allSelected: boolean = false;
     sortState: { column: number; direction: SortState; } | null = null;
 
+    /** Whether the focused cell acts on its text or on the cell. See {@link CellMode}. */
+    private _mode: CellMode = 'select';
+    /**
+     * Set by whatever moves focus into a cell, so {@link _handleCellFocus} knows
+     * the mode was chosen deliberately. Focus arriving any other way — tabbing in
+     * from the toolbar, say — lands in select mode.
+     */
+    private _modeChosen: boolean = false;
     /** Last clicked column for shift-range selection */
     private _lastClickedColumn: number | null = null;
     /** Last clicked row for shift-range selection */
@@ -253,7 +276,10 @@ export class GridUI {
         this._handleDragMove = this._handleDragMove.bind(this);
         this._handleDragEnd = this._handleDragEnd.bind(this);
         this._autoScrollStep = this._autoScrollStep.bind(this);
+        this._handleContainerKeyDown = this._handleContainerKeyDown.bind(this);
+        this.container.addEventListener('keydown', this._handleContainerKeyDown);
 
+        this._setMode('select');
         this.render();
     }
 
@@ -474,14 +500,15 @@ export class GridUI {
      * navigation leaves a cell.
      *
      * Focus parked on the container — how a row/column/range selection keeps
-     * keydowns reachable, see {@link _focusContainer} — is left alone: moving it
+     * keydowns reachable, see {@link focusContainer} — is left alone: moving it
      * into a cell input would clear that selection via {@link _handleCellFocus}.
      */
     renderPreservingFocus() {
         const restore = this._hasCellEditFocus() ? this.focusedCell : null;
+        const mode = this._mode;
         this.render();
         if (restore) {
-            this.focusCell(restore.row, restore.col);
+            this.focusCell(restore.row, restore.col, mode);
         }
     }
 
@@ -496,14 +523,77 @@ export class GridUI {
     }
 
     /**
-     * Focuses a specific cell.
+     * Focuses a specific cell, landing in select mode unless told otherwise.
+     *
+     * Select is the right default because every caller is *navigation* — arrows,
+     * Tab, Enter, a post-render restore. Arriving on a cell is not the same as
+     * asking to type in it; only a click, a keystroke, or F2 means that.
      */
-    focusCell(row: number, col: number) {
+    focusCell(row: number, col: number, mode: CellMode = 'select') {
         const input = this._getInputAt(row, col);
-        if (input) {
-            input.focus();
-            input.select();
+        if (!input) return;
+        // Only claim the upcoming focus event if there will be one: re-focusing
+        // the cell that already has focus raises none, and the flag would then
+        // sit armed and mislabel whatever focus arrives next.
+        this._modeChosen = document.activeElement !== input;
+        this._setMode(mode);
+        input.focus();
+        if (mode === 'select') input.select();
+    }
+
+    /**
+     * Which unit the focused cell's keys act on. See {@link CellMode}.
+     */
+    getMode(): CellMode {
+        return this._mode;
+    }
+
+    /**
+     * Switches mode and reflects it in the DOM.
+     *
+     * The class goes on the container rather than the grid element because
+     * {@link render} rebuilds the grid but never the container, so the mode
+     * survives a re-render without having to be re-applied.
+     *
+     * Select mode leaves the value fully selected so that typing replaces it,
+     * the way it always has; CSS hides both the caret and that selection, so the
+     * cell reads as a selected *cell* rather than as selected *text*.
+     */
+    private _setMode(mode: CellMode, input?: HTMLInputElement | null) {
+        this._mode = mode;
+        this.container.classList.toggle('mte-mode-edit', mode === 'edit');
+        this.container.classList.toggle('mte-mode-select', mode === 'select');
+        if (mode === 'select' && input) input.select();
+    }
+
+    /**
+     * Starts editing the focused cell's text.
+     *
+     * Any cell range is dropped: the keystroke that begins an edit is about this
+     * one cell, and leaving the range armed would quietly re-aim the next Ctrl+C
+     * or Delete at every cell in it.
+     *
+     * @param caret - `'end'` places the caret after the last character (what F2
+     *   does); `'keep'` leaves it where the browser put it (what a click does).
+     */
+    private _enterEditMode(input: HTMLInputElement, caret: 'end' | 'keep' = 'keep') {
+        if (this.hasBlockSelection()) this.clearSelection();
+        this._setMode('edit');
+        if (caret === 'end') {
+            const end = input.value.length;
+            input.setSelectionRange(end, end);
         }
+    }
+
+    /**
+     * Leaves edit mode without moving off the cell.
+     *
+     * The value stays as typed (there is no separate commit step — edits reach
+     * the model on every keystroke) and the whole of it becomes selected again,
+     * exactly as arrow-navigating onto the cell would leave it.
+     */
+    private _enterSelectMode(row: number, col: number) {
+        this._setMode('select', this._getInputAt(row, col));
     }
 
     /**
@@ -542,6 +632,80 @@ export class GridUI {
      */
     getSelectionRange(): { startRow: number; startCol: number; endRow: number; endCol: number; } | null {
         return this.selectionRange;
+    }
+
+    /**
+     * The cell arrow keys move from while a block of cells is selected.
+     *
+     * A block selection has no focused input to read the position off, and
+     * {@link focusedCell} can be stale — clicking a row header never updates it —
+     * so the position comes from the selection itself: the range's moving edge
+     * where there is one, otherwise the top-left cell of whatever is selected.
+     */
+    private _selectionActiveCell(): { row: number; col: number; } {
+        if (this._rangeFocus) return this._rangeFocus;
+        if (this.selectionRange) {
+            return { row: this.selectionRange.startRow, col: this.selectionRange.startCol };
+        }
+        if (this.selectedRows.size > 0) return { row: Math.min(...this.selectedRows), col: 0 };
+        if (this.selectedColumns.size > 0) return { row: 0, col: Math.min(...this.selectedColumns) };
+        return this.focusedCell ?? { row: 0, col: 0 };
+    }
+
+    /**
+     * Handles arrow keys while focus is parked on the container rather than in a
+     * cell input — how a row/column/drag selection keeps keydowns reachable, see
+     * {@link focusContainer}.
+     *
+     * Such a selection is plainly select mode, so the arrows have to mean there
+     * what they mean anywhere else in select mode. Left out, they do nothing at
+     * all, which reads as the editor having gone dead.
+     *
+     * Modified presses are left alone: Ctrl+C/X/V, Alt+arrow and the rest are
+     * the editor's own shortcuts, registered on this same container.
+     */
+    private _handleContainerKeyDown(e: KeyboardEvent) {
+        // A cell input handles its own keys; this only covers the parked case.
+        if (e.target !== this.container) return;
+        if (e.altKey || e.ctrlKey || e.metaKey) return;
+
+        const isArrow = e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
+            e.key === 'ArrowLeft' || e.key === 'ArrowRight';
+        if (!isArrow) return;
+
+        e.preventDefault();
+
+        const from = this._selectionActiveCell();
+        let nr = from.row;
+        let nc = from.col;
+        if (e.key === 'ArrowUp') nr = Math.max(0, nr - 1);
+        else if (e.key === 'ArrowDown') nr = Math.min(getRowCount(this.table) - 1, nr + 1);
+        else if (e.key === 'ArrowLeft') nc = Math.max(0, nc - 1);
+        else if (e.key === 'ArrowRight') nc = Math.min(getColumnCount(this.table) - 1, nc + 1);
+
+        if (e.shiftKey) {
+            const anchor = this._rangeAnchor ?? from;
+            this.selectRange(anchor, { row: nr, col: nc });
+            this.scrollCellIntoView(nr, nc);
+        } else {
+            // Moving onto a single cell ends the block selection — focusCell
+            // clears it — and hands the keyboard back to the grid proper.
+            this.focusCell(nr, nc);
+        }
+    }
+
+    /**
+     * Whether a *block* of cells is selected — a range, whole rows, whole
+     * columns, or the entire table — as opposed to a single focused cell.
+     *
+     * This is the line between "act on the selection" and "act on the cell", and
+     * every caller that needs it was spelling the same four-way test out by hand.
+     */
+    hasBlockSelection(): boolean {
+        return this.allSelected ||
+            this.selectedColumns.size > 0 ||
+            this.selectedRows.size > 0 ||
+            this.selectionRange != null;
     }
 
     /**
@@ -752,6 +916,12 @@ export class GridUI {
 
         setCell(this.table, row, col, input.value);
 
+        // The value actually changed, so the user is typing *in* the cell rather
+        // than acting *on* it. Switching mode here instead of on keydown means no
+        // input method can slip past: AltGr combinations, IME composition and
+        // dictation all raise `input` but not a keydown we could recognise.
+        if (this._mode !== 'edit') this._enterEditMode(input);
+
         if (this.options.onChange) {
             this.options.onChange(this.table);
         }
@@ -767,6 +937,11 @@ export class GridUI {
 
         this.focusedCell = { row, col };
         this.clearSelection();
+
+        // Focus that nothing here initiated — tabbing in from the toolbar, a
+        // browser restore — has no mode behind it, so start on the cell.
+        if (!this._modeChosen) this._setMode('select', input);
+        this._modeChosen = false;
 
         if (this.options.onCellFocus) {
             this.options.onCellFocus(row, col);
@@ -784,42 +959,101 @@ export class GridUI {
         const rowCount = getRowCount(this.table);
         const colCount = getColumnCount(this.table);
 
-        // Shift+Arrow extends a rectangular cell range from the anchor, keeping
-        // the cell input focused so successive presses keep extending.
-        if (e.shiftKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        const editing = this._mode === 'edit';
+        const isArrow = e.key === 'ArrowUp' || e.key === 'ArrowDown' ||
+            e.key === 'ArrowLeft' || e.key === 'ArrowRight';
+
+        // Alt+<arrow> moves the row or column, and is handled by the editor's own
+        // keyboard handler on the container. Acting on it here first would shift
+        // the focused cell out from under that handler, which reads the focused
+        // cell to decide *what* to move — so it would move the neighbouring row.
+        if (isArrow && e.altKey) return;
+
+        // F2 toggles the two modes in place, the one way to go back to acting on
+        // the cell without leaving it (every other exit — Tab, Enter, Up, Down —
+        // also moves, and Escape belongs to the dialog).
+        if (e.key === 'F2') {
             e.preventDefault();
-            const anchor = this._rangeAnchor ?? { row, col };
-            const current = this._rangeFocus ?? { row, col };
-            let nr = current.row;
-            let nc = current.col;
-            if (e.key === 'ArrowUp') nr = Math.max(0, nr - 1);
-            else if (e.key === 'ArrowDown') nr = Math.min(rowCount - 1, nr + 1);
-            else if (e.key === 'ArrowLeft') nc = Math.max(0, nc - 1);
-            else if (e.key === 'ArrowRight') nc = Math.min(colCount - 1, nc + 1);
-            this.selectRange(anchor, { row: nr, col: nc });
-            // Plain arrows ride along with the focus move the browser scrolls for
-            // us; extending a range leaves focus on the original cell, so the
-            // moving edge has to be kept in view by hand.
-            this.scrollCellIntoView(nr, nc);
+            if (editing) this._enterSelectMode(row, col);
+            else this._enterEditMode(input, 'end');
             return;
         }
 
-        // The two axes divide the work:
-        //
-        //  - Up/Down are pure cell navigation and always move. A single-line input has
-        //    no vertical caret movement worth the press — left to the browser they
-        //    just jump to the start/end of the text, which costs a press and is what
-        //    Home/End are for.
-        //  - Left/Right traverse the text first and only move a cell once the caret
-        //    already sits at that edge. A fully selected value (what focusCell leaves
-        //    behind) is at neither edge, so that press falls through to the browser,
-        //    which collapses the caret to the start or end; the next one moves.
-        //
-        // An empty cell needs no special case: both predicates are true there, so
-        // every arrow moves immediately.
-        const length = input.value.length;
-        const collapsedAtStart = input.selectionStart === 0 && input.selectionEnd === 0;
-        const collapsedAtEnd = input.selectionStart === length && input.selectionEnd === length;
+        if (isArrow) {
+            // Selecting text inside a cell — the whole point of edit mode. These
+            // presses belong to the browser, including the Ctrl+Shift word-wise
+            // variants, which used to be swallowed along with the rest.
+            if (editing && e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+                return;
+            }
+
+            if (e.shiftKey) {
+                // Extend a rectangular cell range from the anchor, keeping the cell
+                // input focused so successive presses keep extending. Cells are
+                // single-line, so a vertical press arriving from edit mode has no
+                // text meaning: it drops to select mode and starts the range here.
+                e.preventDefault();
+                if (editing) this._enterSelectMode(row, col);
+                const anchor = this._rangeAnchor ?? { row, col };
+                const current = this._rangeFocus ?? { row, col };
+                let nr = current.row;
+                let nc = current.col;
+                if (e.key === 'ArrowUp') nr = Math.max(0, nr - 1);
+                else if (e.key === 'ArrowDown') nr = Math.min(rowCount - 1, nr + 1);
+                else if (e.key === 'ArrowLeft') nc = Math.max(0, nc - 1);
+                else if (e.key === 'ArrowRight') nc = Math.min(colCount - 1, nc + 1);
+                this.selectRange(anchor, { row: nr, col: nc });
+                // Plain arrows ride along with the focus move the browser scrolls for
+                // us; extending a range leaves focus on the original cell, so the
+                // moving edge has to be kept in view by hand.
+                this.scrollCellIntoView(nr, nc);
+                return;
+            }
+
+            // Ctrl+Left/Right is word-wise caret movement while editing.
+            if (editing && (e.ctrlKey || e.metaKey) &&
+                (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+                return;
+            }
+
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                // A single-line input has no vertical caret movement worth the
+                // press, so Up/Down always mean the cell — from edit mode they
+                // leave it, the way Tab and Enter do.
+                e.preventDefault();
+                const nr = e.key === 'ArrowUp' ? row - 1 : row + 1;
+                if (nr >= 0 && nr < rowCount) this.focusCell(nr, col);
+                else if (editing) this._enterSelectMode(row, col);
+                return;
+            }
+
+            // Left/Right: the text while editing, cells otherwise. At the text
+            // edge the press simply does nothing — the input clamps the caret on
+            // its own — so the mode never changes out from under the caret.
+            if (editing) return;
+            e.preventDefault();
+            const nc = e.key === 'ArrowLeft' ? col - 1 : col + 1;
+            if (nc >= 0 && nc < colCount) this.focusCell(row, nc);
+            return;
+        }
+
+        // Home/End address the text while editing and the row otherwise. Select
+        // mode has to claim them: left to the browser they would collapse the
+        // cell-wide selection that select mode is drawn from, leaving a cell that
+        // looks focused but shows neither caret nor selection.
+        if ((e.key === 'Home' || e.key === 'End') && !editing) {
+            e.preventDefault();
+            const target = e.key === 'Home' ? 0 : colCount - 1;
+            if (e.shiftKey) {
+                const anchor = this._rangeAnchor ?? { row, col };
+                const current = this._rangeFocus ?? { row, col };
+                this.selectRange(anchor, { row: current.row, col: target });
+                this.scrollCellIntoView(current.row, target);
+            } else {
+                this.focusCell(row, target);
+            }
+            return;
+        }
 
         switch (e.key) {
             case 'Tab':
@@ -856,57 +1090,25 @@ export class GridUI {
                     return;
                 }
                 e.preventDefault();
-                if (e.shiftKey) {
-                    // Insert newline - not supported in input, would need textarea
-                    // For now, move up instead
-                    if (row > 0) {
-                        this.focusCell(row - 1, col);
-                    }
-                } else {
-                    // Move down
-                    if (row < rowCount - 1) {
-                        this.focusCell(row + 1, col);
-                    }
-                }
-                break;
-
-            case 'ArrowUp':
-                e.preventDefault();
-                if (row > 0) {
-                    this.focusCell(row - 1, col);
-                }
-                break;
-
-            case 'ArrowDown':
-                e.preventDefault();
-                if (row < rowCount - 1) {
-                    this.focusCell(row + 1, col);
-                }
-                break;
-
-            case 'ArrowLeft':
-                // Deliberately excludes the fully-selected case: that press belongs to
-                // the browser, which collapses the caret to the start (see above).
-                if (collapsedAtStart) {
-                    e.preventDefault();
-                    if (col > 0) {
-                        this.focusCell(row, col - 1);
-                    }
-                }
-                break;
-
-            case 'ArrowRight':
-                if (collapsedAtEnd) {
-                    e.preventDefault();
-                    if (col < colCount - 1) {
-                        this.focusCell(row, col + 1);
-                    }
+                // Insert newline - not supported in input, would need textarea
+                // For now, Shift+Enter moves up instead.
+                const enterRow = e.shiftKey ? row - 1 : row + 1;
+                if (enterRow >= 0 && enterRow < rowCount) {
+                    this.focusCell(enterRow, col);
+                } else if (editing) {
+                    // Nowhere to move, but Enter still means "done with this
+                    // cell" — so leave edit mode rather than stay in it.
+                    this._enterSelectMode(row, col);
                 }
                 break;
 
             case 'Delete':
-                if (input.selectionStart === 0 && input.selectionEnd === input.value.length) {
-                    // Cell is fully selected, clear it
+            case 'Backspace':
+                // In select mode the cell is the unit, so either key empties the
+                // whole of it. A range/row/column selection is the editor's own
+                // Delete shortcut to handle — clearing just this cell would empty
+                // one cell out of the block the user had selected.
+                if (!editing && !this.hasBlockSelection()) {
                     e.preventDefault();
                     input.value = '';
                     setCell(this.table, row, col, '');
@@ -914,7 +1116,7 @@ export class GridUI {
                         this.options.onChange(this.table);
                     }
                 }
-                // Otherwise, let browser handle normal delete (character after cursor)
+                // Otherwise the browser edits the text, one character at a time.
                 break;
         }
     }
@@ -988,7 +1190,7 @@ export class GridUI {
         const rangeSelection = e.shiftKey;
 
         this.selectColumn(colIndex, { addToSelection, rangeSelection });
-        this._focusContainer();
+        this.focusContainer();
 
         if (this.options.onColumnSelect) {
             this.options.onColumnSelect(colIndex);
@@ -1027,7 +1229,7 @@ export class GridUI {
         const rangeSelection = e.shiftKey;
 
         this.selectRow(rowIndex, { addToSelection, rangeSelection });
-        this._focusContainer();
+        this.focusContainer();
 
         if (this.options.onRowSelect) {
             this.options.onRowSelect(rowIndex);
@@ -1043,7 +1245,7 @@ export class GridUI {
         } else {
             this.selectAll();
         }
-        this._focusContainer();
+        this.focusContainer();
     }
 
     /**
@@ -1062,9 +1264,19 @@ export class GridUI {
             e.preventDefault();
             const anchor = this._rangeAnchor ?? this.focusedCell ?? { row, col };
             this.selectRange(anchor, { row, col });
-            this._focusContainer();
+            this._setMode('select');
+            this.focusContainer();
             return;
         }
+
+        // A plain click means "type here", so it enters edit mode with the caret
+        // wherever the browser puts it. Setting the mode before the input takes
+        // focus keeps _handleCellFocus from overriding it — and doing it here
+        // rather than on focus covers clicking the cell that already has focus,
+        // which raises no focus event but must still drop any armed cell range.
+        this._modeChosen = document.activeElement !== this._getInputAt(row, col);
+        if (this.hasBlockSelection()) this.clearSelection();
+        this._setMode('edit');
 
         // Potential drag-select: remember the anchor and watch for movement.
         // No preventDefault here, so a simple click still focuses the input.
@@ -1090,6 +1302,9 @@ export class GridUI {
             // (mousedown + mouseup in place) still edits rather than selects.
             if (target.row === this._dragAnchor.row && target.col === this._dragAnchor.col) return;
             this._dragging = true;
+            // The mousedown entered edit mode on the assumption of a click; the
+            // pointer leaving the cell says otherwise — this is a cell selection.
+            this._setMode('select');
             // Drop the text caret started by the mousedown and stop the browser
             // from selecting input text while we drag across cells.
             if (document.activeElement instanceof HTMLElement) {
@@ -1259,7 +1474,7 @@ export class GridUI {
         if (this._dragging) {
             this.gridElement?.classList.remove('mte-selecting');
             this._dragging = false;
-            this._focusContainer();
+            this.focusContainer();
         }
         this._dragAnchor = null;
         this._dragPointer = null;
@@ -1273,7 +1488,7 @@ export class GridUI {
      * the editor's keyboard handler. Focuses the container (not a cell input,
      * which would clear the selection via {@link _handleCellFocus}).
      */
-    private _focusContainer() {
+    focusContainer() {
         this.container.focus({ preventScroll: true });
     }
 

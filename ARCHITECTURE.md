@@ -3,7 +3,7 @@
 > Orientation doc for working in this repo. Lets you act without re-reading the
 > whole tree. Keep it current: when a fact here changes, update the relevant
 > line. Each section is independent so edits stay local.
-> Last verified against source: 2026-08-17.
+> Last verified against source: 2026-09-18.
 
 ## 1. What it is
 
@@ -32,7 +32,7 @@ Five top-level parts share **one** root `package.json` and `tsconfig.json`.
 (the `.js` extension in imports resolves to `.ts` via esbuild + `moduleResolution: bundler`).
 No published package / no path aliases.
 
-```
+```text
 core/        # 1. Framework-agnostic editor engine (the heart of the project)
 bookstack/   # 2. BookStack integration + the primary build script
 tauri/       # 3. Desktop app (frontend/ web shell + src-tauri/ Rust shell)
@@ -67,19 +67,53 @@ forking rules. **Shared** layers live in `core/src/styles/`; **BookStack-only** 
 
 - `core/src/styles/tokens.css` — `.mte` custom-property defaults (light) + `.dark-theme` (dark). **The "look".** Shared.
 - `core/src/styles/editor.css` — shared widget structure: grid, toolbar, cells, headers, selection/hover, resize.
-- `bookstack/src/styles/modal.css` — modal-shell chrome: backdrop, modal frame, titlebar, footer buttons, confirm
-  dialog, animations, `.mte-button` (the BookStack launch button). **BookStack-only.**
+- `core/src/styles/confirm.css` — the "Discard changes?" dialog (`showConfirmDialog`). Shared, because both
+  shells ask before they discard changes.
+- `bookstack/src/styles/modal.css` — modal-shell chrome: backdrop, modal frame, titlebar, toolbar Save/Cancel
+  buttons, animations, `.mte-button` (the BookStack launch button). **BookStack-only.**
 
 Entry sheets compose via `@import`, resolved+inlined at build time by esbuild (never fetched at runtime):
 
-- `bookstack/src/styles/styles.css` = tokens + editor + modal (BookStack, full) + a BookStack reskin
+- `bookstack/src/styles/styles.css` = tokens + editor + confirm + modal (BookStack, full) + a BookStack reskin
   block that overrides color tokens to match BookStack's blue/green/red palette.
-- `tauri/frontend/styles.css` = tokens + editor (no modal) + a desktop token-override block.
+- `tauri/frontend/styles.css` = tokens + editor + confirm (no modal) + a desktop token-override block.
   `tauri/frontend/app.css` = full-window shell layout (app-only, no `@import`).
 
 To diverge a shell's look: override `--mte-*` tokens in that shell's entry sheet (BookStack reskins in
 `bookstack/src/styles/styles.css`, desktop in `tauri/frontend/styles.css`). To fix grid/toolbar
 structure: edit `core/src/styles/editor.css` once — both shells pick it up.
+
+### Cell mode (select vs edit)
+
+The focused cell reads one of two ways, and `GridUI._mode` (`CellMode`) says which.
+The cell `<input>` holds focus in **both** — the mode decides which keys the grid
+claims and which it leaves to the browser:
+
+- **`select`** — the *cell* is the unit. Arrows move between cells (one press each),
+  Shift+arrows grow a cell range, Home/End jump along the row, Delete/Backspace empty
+  the cell, Ctrl+C copies cells. The value is kept fully selected so typing replaces
+  it; CSS hides both the caret and that text selection, so the cell reads as a
+  selected *cell*.
+- **`edit`** — the *text* is the unit. Arrows move the caret and stop at the text
+  edge (they never leave the cell), Shift+arrows and Ctrl+Shift+arrows select text,
+  Delete/Backspace edit characters, Ctrl+C copies the selection. Vertical arrows are
+  the exception: cells are single-line, so Up/Down always mean the cell and leave
+  edit mode.
+
+Transitions: click, typing, and F2 enter `edit`; arrows/Tab/Enter/F2 and any cell
+range return to `select`. `focusCell(row, col, mode?)` defaults to `select` because
+every caller is navigation. `Escape` belongs to the modal, not the cell — F2 is the
+way back out of `edit` without moving.
+
+Two rules follow from this and are easy to break:
+
+- The mode class lives on the grid **container**, which outlives the re-renders that
+  rebuild the grid. Never move it onto `.mte-grid`.
+- `_handleCellKeyDown` must leave `Alt+<arrow>` entirely alone. It's the
+  move-row/move-column shortcut, and that handler reads the *focused cell* to decide
+  what to move — acting first would move the neighbouring row.
+
+`TableEditorCore.isEditingCellText()` (which gates Ctrl+C/X/V) is just this mode.
 
 ### Key types & invariants
 
@@ -106,7 +140,8 @@ Both shells **compose `TableEditorCore`** rather than duplicate editing logic:
   **desktop-only** controls — a format `<select>` and a Copy button — into the core
   toolbar's trailing slot (`core.getToolbarTrailingSlot()`). Whole-table
   load-from-clipboard is the shared toolbar **Paste** button (`core.pasteTable()`),
-  not a desktop-specific control.
+  not a desktop-specific control. The desktop app sets `pasteTableResetsChanges`, so a
+  whole-table paste becomes the new unchanged state. In the modal it stays a change.
 
 The toolbar (core) is: pill groups (insert/move/delete/undo-redo/paste) → icon-only
 Aligned toggle → flex spacer → trailing slot (shell-injected controls). `aligned` state
@@ -137,6 +172,15 @@ only affects Markdown padding and is independent of the desktop format selection
 - `frontend/app.ts` — **`TableApp`**: full-window editor. The core toolbar is the top
   bar; the desktop-only format `<select>` + Copy button are injected into its trailing
   slot (Load-from-clipboard is the shared toolbar Paste button). Footer = transient status.
+  **Close guard:** `installCloseGuard()` listens to Tauri's `onCloseRequested` and shows
+  `showConfirmDialog` when `core.hasChanges()` is true. It uses the injected
+  `window.__TAURI__` global (`app.withGlobalTauri: true`, typed in `frontend/tauri-global.d.ts`)
+  instead of the `@tauri-apps/api` package, to keep zero runtime dependencies. Tauri closes
+  the window with `destroy()` after the handler returns, so the capability needs
+  `core:window:allow-destroy`. `blockReloadKeys()` cancels F5 / Ctrl+R (and variants) in a
+  capture-phase `keydown` listener, because a reload would lose the table without asking.
+  Tauri 2.11 does not expose WebView2's `AreBrowserAcceleratorKeysEnabled`, and that setting
+  would also turn off Ctrl+F and the other browser shortcuts.
 - `frontend/build.js` — esbuild bundles `main.ts` → `frontend/dist/` (IIFE, inline
   sourcemap, NOT minified), copies `styles.css` + `app.css`, emits a static `index.html`.
   Run automatically by Tauri's `beforeDevCommand` / `beforeBuildCommand`.
@@ -179,8 +223,8 @@ only affects Markdown padding and is independent of the desktop format selection
 
 ## 8. File size signposts (largest first, for "where's the logic")
 
-`grid-ui.ts` (938 — the editable grid: rendering, selection, focus, sort, resize, in-cell
-keyboard) ≫ `table-editor-core.ts` (547) > `integration.ts` (413) > `range-clipboard.ts`
-(348) ≈ `index.ts` (342) ≈ `modal.ts` (339) > `table-parse.ts` (307) > `toolbar.ts` (278) >
-`data-model.ts` (271) > `parser.ts` (262) > `serializer.ts` (221) > `undo.ts` (213) >
-`app.ts` (204).
+`grid-ui.ts` (1623 — the editable grid: rendering, selection, focus, cell mode, sort,
+resize, in-cell keyboard) ≫ `table-editor-core.ts` (696) > `integration.ts` (447) >
+`range-clipboard.ts` (378) > `toolbar.ts` (353) ≈ `modal.ts` (348) > `table-parse.ts` (328)
+≈ `parser.ts` (322) ≈ `index.ts` (322) > `data-model.ts` (292) > `serializer.ts` (227) >
+`undo.ts` (213) > `app.ts` (194) > `keyboard.ts` (169).
